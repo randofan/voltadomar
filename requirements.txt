@@ -1,0 +1,4 @@
+grpcio==1.67.0
+grpcio-tools==1.67.0
+protobuf==5.28.3
+scapy==2.6.0
