@@ -1,0 +1,145 @@
+<mxfile host="65bd71144e">
+    <diagram name="Page-1" id="tWezB2ck2QAuVJHFnouS">
+        <mxGraphModel dx="976" dy="250" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-4" value="Controller" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+                    <mxGeometry x="-146" y="159" width="120" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-5" value="Anycast Node A" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+                    <mxGeometry x="147" y="49" width="120" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-7" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 3;strokeWidth=6;rounded=0;" parent="1" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="208" y="248" as="sourcePoint"/>
+                        <mxPoint x="208" y="178" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-9" value="1a. InitRequest" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" parent="1" source="JVptZoE7rjW-e9TxTJ25-4" target="JVptZoE7rjW-e9TxTJ25-5" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="7" y="163" as="sourcePoint"/>
+                        <mxPoint x="57" y="113" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-12" value="Receiver Agent" style="whiteSpace=wrap;html=1;aspect=fixed;" parent="1" vertex="1">
+                    <mxGeometry x="107" y="119" width="80" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-13" value="1b. Replies&lt;br&gt;(stream)" style="endArrow=classic;html=1;rounded=0;exitX=0;exitY=0.25;exitDx=0;exitDy=0;entryX=1.001;entryY=0.557;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" source="JVptZoE7rjW-e9TxTJ25-12" target="JVptZoE7rjW-e9TxTJ25-4" edge="1">
+                    <mxGeometry x="-0.3725" y="-1" width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="24" y="230" as="sourcePoint"/>
+                        <mxPoint x="74" y="180" as="targetPoint"/>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-15" value="2. Send Packet &lt;i&gt;i&lt;/i&gt; on A" style="endArrow=classic;html=1;rounded=0;exitX=0.994;exitY=0.894;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;exitPerimeter=0;" parent="1" source="JVptZoE7rjW-e9TxTJ25-4" target="JVptZoE7rjW-e9TxTJ25-12" edge="1">
+                    <mxGeometry x="-0.0285" y="-5" width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="11" y="271" as="sourcePoint"/>
+                        <mxPoint x="61" y="221" as="targetPoint"/>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-16" value="" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.75;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" parent="1" source="JVptZoE7rjW-e9TxTJ25-12" target="JVptZoE7rjW-e9TxTJ25-19" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="269" y="213" as="sourcePoint"/>
+                        <mxPoint x="319" y="163" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-19" value="" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+                    <mxGeometry x="231" y="143" width="28" height="7" as="geometry"/>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-20" value="2. Packet &lt;i&gt;i&lt;/i&gt;" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" parent="1" source="JVptZoE7rjW-e9TxTJ25-19" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="304" y="197" as="sourcePoint"/>
+                        <mxPoint x="354" y="147" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-21" value="" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+                    <mxGeometry x="231" y="120" width="28" height="7" as="geometry"/>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-22" value="" style="endArrow=classic;html=1;rounded=0;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="JVptZoE7rjW-e9TxTJ25-21" target="JVptZoE7rjW-e9TxTJ25-12" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="257" y="228" as="sourcePoint"/>
+                        <mxPoint x="307" y="178" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-23" value="1b. Replies" style="endArrow=classic;html=1;rounded=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" target="JVptZoE7rjW-e9TxTJ25-21" edge="1">
+                    <mxGeometry x="-0.2753" y="-20" width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="347" y="123" as="sourcePoint"/>
+                        <mxPoint x="371" y="64" as="targetPoint"/>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-25" value="" style="endArrow=classic;html=1;rounded=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="354" y="129" as="sourcePoint"/>
+                        <mxPoint x="266" y="130" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-26" value="" style="endArrow=classic;html=1;rounded=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="362" y="116" as="sourcePoint"/>
+                        <mxPoint x="274" y="117" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-30" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="238" y="438" as="sourcePoint"/>
+                        <mxPoint x="302" y="438" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-32" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="248" y="448" as="sourcePoint"/>
+                        <mxPoint x="312" y="448" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-33" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="231" y="458" as="sourcePoint"/>
+                        <mxPoint x="295" y="458" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-35" value="Probes ~&lt;br&gt;seq: int&lt;br&gt;t1: time&lt;br&gt;t2: time&lt;br&gt;timeout: bool&lt;br&gt;got_there: bool" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=2;" parent="1" vertex="1">
+                    <mxGeometry x="-79" y="385" width="86" height="266" as="geometry"/>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-36" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 3;strokeWidth=5;rounded=0;" parent="1" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="-40" y="455" as="sourcePoint"/>
+                        <mxPoint x="-40" y="409" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-37" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 3;strokeWidth=5;rounded=0;" parent="1" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="-40" y="624" as="sourcePoint"/>
+                        <mxPoint x="-40" y="578" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-38" value="1. Generate probes&lt;br&gt;&lt;div style=&quot;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;- generate probe&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;- send packet&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;- store sent timestamp&amp;nbsp;&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;&amp;nbsp; received in the response&lt;/span&gt;&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+                    <mxGeometry x="61" y="418" width="160" height="59" as="geometry"/>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-40" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="312" y="561" as="sourcePoint"/>
+                        <mxPoint x="248" y="561" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-41" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="322" y="571" as="sourcePoint"/>
+                        <mxPoint x="258" y="571" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-42" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="305" y="581" as="sourcePoint"/>
+                        <mxPoint x="241" y="581" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="JVptZoE7rjW-e9TxTJ25-43" value="2. Receive replies&lt;br&gt;- update receive timestamp in t2&lt;br&gt;- if out of timeout bounds, then &lt;br&gt;&amp;nbsp; timeout = true&lt;br&gt;- if ICMP reply is &quot;destination &lt;br&gt;&amp;nbsp; unreachable&quot;, then it got_there" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+                    <mxGeometry x="50" y="560" width="186" height="30" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
