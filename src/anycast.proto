@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package anycast;
+
+service AnycastService {
+  rpc ReceiverAgent (InitRequest) returns (stream ForwardPacket) {}
+  rpc SendPacket(SendRequest) returns (CommandResponse) {}
+}
+
+message InitRequest {
+  bytes hmac = 1;
+  string filter = 2;
+  string host = 3;
+}
+
+message SendRequest {
+  bytes raw_request = 1;
+}
+
+message ForwardPacket {
+  bytes raw_reply = 1;
+  string host = 2;
+  string receive_time = 3;
+}
+
+message CommandResponse {
+  int32 code = 1;
+  string sent_time = 2;
+}
+
