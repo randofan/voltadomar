@@ -61,6 +61,7 @@ class Controller:
             try:
                 logger.info(f"Connecting to {address} for ReceiverAgent")
                 async for response in self.stubs[address].ReceiverAgent(anycast_pb2.InitRequest(hmac=hmac, filter=filter, host=address)):
+                    logger.info(f"Received response from {address}")
                     self.handle_reply(response)
             except grpc.aio.AioRpcError as e:
                 logger.error(f"Error from {address}: {e}")
@@ -69,7 +70,7 @@ class Controller:
             task = asyncio.create_task(handle_stream(address))
             self.background_tasks[address] = task
 
-    def stop_receiver_agents(self):
+    async def stop_receiver_agents(self):
         """Stop all the receiver agents.
 
         Cancel the tasks. This closes the gRPC stream and causes
@@ -77,7 +78,7 @@ class Controller:
         """
         for task in self.background_tasks.values():
             task.cancel()
-        asyncio.run(asyncio.gather(*self.background_tasks, return_exceptions=True))
+        await asyncio.gather(*self.background_tasks.values(), return_exceptions=True)
 
     async def send_packet(self, address, raw_request):
         """
@@ -99,6 +100,7 @@ class Controller:
             return
 
         try:
+            logger.info(f"Sending packet to {address}")
             response = await self.stubs[address].SendPacket(anycast_pb2.SendRequest(raw_request=raw_request))
             return response
         except grpc.aio.AioRpcError as e:

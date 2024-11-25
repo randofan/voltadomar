@@ -27,4 +27,3 @@ message CommandResponse {
   int32 code = 1;
   string sent_time = 2;
 }
-

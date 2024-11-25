@@ -4,17 +4,18 @@ from threading import Thread
 from concurrent import futures
 import anycast_pb2
 import anycast_pb2_grpc
-from scapy.all import sendp, sniff, Ether
+from scapy.all import send, sniff, IP
 import logging
 import sys
 from datetime import datetime
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     stream=sys.stdout
 )
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class AnycastServiceServicer(anycast_pb2_grpc.AnycastServiceServicer):
@@ -43,7 +44,13 @@ class AnycastServiceServicer(anycast_pb2_grpc.AnycastServiceServicer):
             filter (string): Set a filter on sniff to only capture desired
             packets.
         """
-        sniff(prn=lambda packet: self.queue.put((packet, datetime.now())), filter=filter, store=False)
+        logger.debug(f"Sniffing packets with filter: {filter}")
+
+        def packet_callback(packet):
+            logger.debug(f"Received packet: {packet.summary()}")
+            self.queue.put((bytes(packet), datetime.now()))
+
+        sniff(prn=packet_callback, filter=filter, store=False)
 
     def ReceiverAgent(self, request, context):
         """Initialize worker agent to forward packets.
@@ -90,9 +97,11 @@ class AnycastServiceServicer(anycast_pb2_grpc.AnycastServiceServicer):
         try:
             logger.info("Sending packet")
             sent_time = datetime.now().isoformat()
-            sendp(Ether(request.raw_request), iface="ens3")
+            reconstructed_packet = IP(request.raw_request)
+            send(reconstructed_packet)
             return anycast_pb2.CommandResponse(code=200, sent_time=sent_time)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error sending packet: {e}")
             return anycast_pb2.CommandResponse(code=500)
 
 
