@@ -4,9 +4,10 @@ from threading import Thread
 from concurrent import futures
 import anycast_pb2
 import anycast_pb2_grpc
-from scapy.all import send, sniff, IP
+from scapy.all import sniff, IP, conf
 import logging
 import sys
+import time
 from datetime import datetime
 
 logging.basicConfig(
@@ -16,6 +17,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+original_send = conf.L3socket.send
+
+
+def timed_send(self, pkt):
+    original_send(self, pkt)
+    send_time = time.time()
+    t = datetime.fromtimestamp(send_time).isoformat()
+    return t
+
+
+conf.L3socket.send = timed_send
 
 
 class AnycastServiceServicer(anycast_pb2_grpc.AnycastServiceServicer):
@@ -48,7 +61,7 @@ class AnycastServiceServicer(anycast_pb2_grpc.AnycastServiceServicer):
 
         def packet_callback(packet):
             logger.debug(f"Received packet: {packet.summary()}")
-            self.queue.put((bytes(packet), datetime.now()))
+            self.queue.put((bytes(packet), datetime.fromtimestamp(packet.time)))
 
         sniff(prn=packet_callback, filter=filter, store=False)
 
@@ -96,9 +109,8 @@ class AnycastServiceServicer(anycast_pb2_grpc.AnycastServiceServicer):
         """
         try:
             logger.info("Sending packet")
-            sent_time = datetime.now().isoformat()
             reconstructed_packet = IP(request.raw_request)
-            send(reconstructed_packet)
+            sent_time = conf.L3socket().send(reconstructed_packet)
             return anycast_pb2.CommandResponse(code=200, sent_time=sent_time)
         except Exception as e:
             logger.error(f"Error sending packet: {e}")

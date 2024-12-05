@@ -3,12 +3,13 @@ import grpc
 import anycast_pb2
 import anycast_pb2_grpc
 import logging
-import sys
+from abc import abstractmethod
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    stream=sys.stdout
+    filename='traceroute.log',
+    filemode='w'
 )
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class Controller:
         self.stubs = {address: anycast_pb2_grpc.AnycastServiceStub(grpc.aio.insecure_channel(address)) for address in self.server_addresses}
         self.background_tasks = {address: None for address in self.server_addresses}
 
+    @abstractmethod
     def handle_reply(self, response):
         """Callback function to handle replies from the workers.
 
@@ -81,8 +83,7 @@ class Controller:
         await asyncio.gather(*self.background_tasks.values(), return_exceptions=True)
 
     async def send_packet(self, address, raw_request):
-        """
-        Sends a packet to the specified address.
+        """Sends a packet to the specified address.
 
         Args:
             address (str): The worker to forward the packet from.

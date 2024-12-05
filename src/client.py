@@ -15,14 +15,15 @@ logging.basicConfig(
     stream=sys.stdout
 )
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
 
 
-def build_udp_packet(destination_ip, ttl, probe_num):
-    source_port = os.getpid() % 65535
-    destination_port = BASE_PORT + ttl * probe_num
-    logger.debug(f"Building UDP packet: destination_ip={destination_ip}, ttl={ttl}, probe_num={probe_num}, source_port={source_port}, destination_port={destination_port}")
-    packet = IP(dst=destination_ip, ttl=ttl) / UDP(sport=source_port, dport=destination_port)
+def build_udp_packet(destination_ip, ttl, sequence, source_port, base_port):
+    dst_port = base_port + sequence
+    logger.debug(
+        f"Building UDP packet: destination_ip={destination_ip}, ttl={ttl}, sequence={sequence}, "
+        f"source_port={source_port}, destination_port={dst_port}"
+    )
+    packet = IP(dst=destination_ip, ttl=ttl) / UDP(sport=source_port, dport=dst_port)
     return bytes(packet)
 
 
@@ -41,7 +42,7 @@ class TracerouteController(Controller):
         self.destination_ip = None
         self.tr_conf = TracerouteConf(
             probe_num=3,
-            max_ttl=30,
+            max_ttl=20,
             timeout=5
         )
         self.tr_results = [
@@ -76,10 +77,11 @@ class TracerouteController(Controller):
                 t1 = datetime.fromisoformat(result.t1)
                 t2 = datetime.fromisoformat(result.t2)
                 delta_ms = (t2 - t1).total_seconds() * 1000
-                print(f"  {delta_ms:.3f} ms ({result.receiver})", end="")
+                print(f"  {delta_ms:.3f} ms", end="")
             print("")
-            if all(self.tr_results[seq + i].final_dst for i in range(self.tr_conf.probe_num)):
+            if any(self.tr_results[seq + i].final_dst for i in range(self.tr_conf.probe_num)):
                 break
+        logger.debug(self.tr_results)
         exit()
 
     def handle_reply(self, response):
@@ -107,7 +109,7 @@ class TracerouteController(Controller):
             logger.debug(f"Source port {src_port} does not match process ID {os.getpid()}")
             return
 
-        seq = (dst_port - BASE_PORT)
+        seq = dst_port - BASE_PORT
         if seq < 0 or seq >= len(self.tr_results):
             logger.debug(f"Sequence number {seq} is out of range")
             return
@@ -143,11 +145,23 @@ class TracerouteController(Controller):
         self.run_receiver_agents(hmac=b"123456", filter="icmp")
         logger.debug("Receiver agents started")
         logger.debug("Sending packets")
-        for i in range(len(self.tr_results)):
-            packet = build_udp_packet(self.destination_ip, (i // self.tr_conf.probe_num) + 1, i % self.tr_conf.probe_num)
-            response = await self.send_packet(self.sender_host, packet)
+        source_port = os.getpid() % 65535
+        for index, result in enumerate(self.tr_results):
+            ttl = (index // self.tr_conf.probe_num) + 1
+            probe_num = (index % self.tr_conf.probe_num) + 1
+            sequence = (ttl - 1) * self.tr_conf.probe_num + (probe_num - 1)
+
+            packet = build_udp_packet(
+                destination_ip=self.destination_ip,
+                ttl=ttl,
+                sequence=sequence,
+                source_port=source_port,
+                base_port=BASE_PORT,
+            )
+
+            response = await self.send_packet(sender_host, packet)
             if response.code == 200:
-                self.tr_results[i].t1 = response.sent_time
+                result.t1 = response.sent_time
             else:
                 logger.error(f"Error sending packet: {response.code}")
         logger.debug("Packets sent")
