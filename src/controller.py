@@ -1,108 +1,144 @@
-import asyncio
+import os
 import grpc
-import anycast_pb2
-import anycast_pb2_grpc
+import ast
 import logging
-from abc import abstractmethod
+from concurrent import futures
+import anycast_pb2_grpc
+from anycast_pb2 import ReplyPayload, AckPayload, SendPayload, Message, StartPayload, ErrorPayload, RegisterPayload, StopPayload, Response
+from google.protobuf.any_pb2 import Any
+from traceroute import Traceroute
 
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    filename='traceroute.log',
+    filename='controller.log',
     filemode='w'
 )
 logger = logging.getLogger(__name__)
 
 
-class Controller:
-    """Abstract class for the controller."""
+# TODO gRPC only supports int32, but the session_id and sequence numbers should both be uint16
 
-    def __init__(self, server_addresses):
-        """Store internal state for the controller.
+class Controller(anycast_pb2_grpc.AnycastServiceServicer):
+    """Base class for the controller."""
 
-        Args:
-            server_addresses (list[str]): Worker IP + port to connect to.
+    def __init__(self):
+        self.next_session_id = os.getpid() % 65535
+        self.programs = {}  # session_id -> Program
+        self.worker_streams = {}  # worker_id -> context
 
-        Fields:
-            server_addresses (list[str]): Workers - we use the IP + port as a
-            uuid for each worker.
-            stubs (dict): worker -> gRPC stubs.
-            background_tasks (dict): worker -> coroutine task.
-        """
-        self.server_addresses = server_addresses
-        self.stubs = {address: anycast_pb2_grpc.AnycastServiceStub(grpc.aio.insecure_channel(address)) for address in self.server_addresses}
-        self.background_tasks = {address: None for address in self.server_addresses}
+    async def WorkerStream(self, request_iterator, context):
+        worker_id = None
+        try:
+            async for message in request_iterator:
+                if message.type == "REGISTER":
+                    register_payload = RegisterPayload()
+                    message.payload.Unpack(register_payload)
+                    worker_id = register_payload.worker_id
 
-    @abstractmethod
-    def handle_reply(self, response):
-        """Callback function to handle replies from the workers.
+                    self.worker_streams[worker_id] = context
+                    logger.info(f"Worker {worker_id} registered")
 
-        Args:
-            response (ForwardPacket): gRPC response from the worker.
+                elif message.type == "ACK":
+                    if not worker_id:
+                        logger.error("Received ACK without preceding REGISTER")
+                        continue
+                    logger.debug(f"Ack from {worker_id}")
+                    ack_payload = AckPayload()
+                    message.payload.Unpack(ack_payload)
+                    session_id = ack_payload.session_id
+                    if session_id in self.programs:
+                        self.programs[session_id].handle_ack(ack_payload)
+                    else:
+                        logger.error(f"Received ACK for unknown session ID {session_id}")
 
-        Raises:
-            NotImplementedError: Each implementation of the controller
-            must implement this method.
-        """
-        raise NotImplementedError("Implement this method")
+                elif message.type == "ERROR":
+                    error_payload = ErrorPayload()
+                    message.payload.Unpack(error_payload)
+                    logger.error(f"Error from {worker_id} code: {error_payload.code} message: {error_payload.message}")
 
-    def run_receiver_agents(self, /, hmac, filter):
-        """Initiates each worker receiver agent.
+                elif message.type == "REPLY":
+                    if not worker_id:
+                        logger.error("Received REPLY without preceding REGISTER")
+                        continue
+                    logger.debug(f"Reply from {worker_id}")
+                    reply_payload = ReplyPayload()
+                    message.payload.Unpack(reply_payload)
+                    session_id = reply_payload.session_id
+                    if session_id in self.programs:
+                        self.programs[session_id].handle_reply(reply_payload, worker_id)
+                    else:
+                        logger.error(f"Received REPLY for unknown session ID {session_id}")
 
-        Creates a coroutine task for each worker to handle streaming
-        responses. Whenever a response is received, it invokes the
-        handle_reply callback function to process the response.
+                else:
+                    logger.error(f"Unknown message type: {message.type}")
+                    continue
 
-        All tasks are stored in the controller's state background_tasks.
+        except grpc.aio.AioRpcError as e:
+            logger.info(f"Worker {worker_id} disconnected: {e}")
+        finally:
+            if worker_id:
+                self.worker_streams.pop(worker_id, None)
 
-        Args:
-            hmac (str): HMAC to initialize each worker with.
-            filter (str): The filter criteria to initialize each worker with.
-        """
-        async def handle_stream(address):
-            try:
-                logger.info(f"Connecting to {address} for ReceiverAgent")
-                async for response in self.stubs[address].ReceiverAgent(anycast_pb2.InitRequest(hmac=hmac, filter=filter, host=address)):
-                    logger.info(f"Received response from {address}")
-                    self.handle_reply(response)
-            except grpc.aio.AioRpcError as e:
-                logger.error(f"Error from {address}: {e}")
+    async def start_agents(self, settings, session_id):
+        for worker_id, context in self.worker_streams.items():
+            packed = Any()
+            packed.Pack(StartPayload(session_id=session_id, **settings))
+            message = Message(type="START", payload=packed)
+            await context.write(message)
+            logger.info(f"Sent START to worker {worker_id} with settings: {self.settings}")
 
-        for address in self.server_addresses:
-            task = asyncio.create_task(handle_stream(address))
-            self.background_tasks[address] = task
+    async def stop_agents(self, session_id):
+        for worker_id, context in self.worker_streams.values():
+            packed = Any()
+            packed.Pack(StopPayload(session_id=session_id))
+            message = Message(type="STOP", payload=packed)
+            await context.write(message)
+            logger.info(f"Sent STOP to worker {worker_id}")
 
-    async def stop_receiver_agents(self):
-        """Stop all the receiver agents.
-
-        Cancel the tasks. This closes the gRPC stream and causes
-        the receiver agents to exit.
-        """
-        for task in self.background_tasks.values():
-            task.cancel()
-        await asyncio.gather(*self.background_tasks.values(), return_exceptions=True)
-
-    async def send_packet(self, address, raw_request):
-        """Sends a packet to the specified address.
-
-        Args:
-            address (str): The worker to forward the packet from.
-            raw_request (bytes): The L3 raw packet to be sent.
-
-        Returns:
-            None: if there is an error.
-            CommandResponse: gRPC response object.
-            - Status code indicating if the packet was sent
-            - Timestamp (ISO format) of when the packet was sent
-              from the worker.
-        """
-        if address not in self.stubs:
-            logger.error(f"Address {address} is not in the list of servers.")
+    async def send_packet(self, worker_id, packet, packet_id):
+        if worker_id not in self.worker_streams:
+            logger.error(f"Worker {worker_id} not found")
             return
 
+        send_payload = SendPayload(raw_packet=packet, seq=packet_id)
+        packed = Any()
+        packed.Pack(send_payload)
+
+        message = Message(type="SEND", payload=packed)
+        context = self.worker_streams[worker_id]
+        await context.write(message)
+
+    async def UserRequest(self, request, context):
         try:
-            logger.info(f"Sending packet to {address}")
-            response = await self.stubs[address].SendPacket(anycast_pb2.SendRequest(raw_request=raw_request))
-            return response
-        except grpc.aio.AioRpcError as e:
-            logger.error(f"Error sending packet to {address}: {e}")
+            command = request.command
+            settings = ast.literal_eval(request.settings)
+            session_id = self.next_session_id  # this should be thread-safe
+            settings["filter"] = f"icmp and icmp[28:2] = {session_id:#04x}"
+            self.next_session_id += 1
+            # TODO extend this to support multiple programs, not just traceroute
+            # TODO handle errors better
+            self.programs[session_id] = Traceroute(self, session_id)
+            await self.start_agents(session_id, settings)
+            output = await self.programs[session_id].run(command)
+            await self.stop_agents(session_id)
+            del self.programs[session_id]
+            return Response(code=200, output=output)
+        except Exception as e:
+            logger.error(f"Error processing user request: {e}")
+            return Response(code=500, output=str(e))
+        finally:
+            self.programs.pop(session_id, None)
+
+
+def serve(port):
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    anycast_pb2_grpc.add_AnycastServiceServicer_to_server(Controller(), server)
+    server.add_insecure_port(f'0.0.0.0:{port}')
+    server.start()
+    logger.info(f"Server started on port {port}")
+    server.wait_for_termination()
+
+
+if __name__ == '__main__':
+    serve(port=50051)

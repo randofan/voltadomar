@@ -20,3 +20,5 @@ class TracerouteConf:
 
 
 BASE_PORT = 33434
+ETHER_HEADER_OFFSET = 14
+UDP_OFFSET = 42

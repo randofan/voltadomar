@@ -22,23 +22,36 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
+from google.protobuf import any_pb2 as google_dot_protobuf_dot_any__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\ranycast.proto\x12\x07\x61nycast\"9\n\x0bInitRequest\x12\x0c\n\x04hmac\x18\x01 \x01(\x0c\x12\x0e\n\x06\x66ilter\x18\x02 \x01(\t\x12\x0c\n\x04host\x18\x03 \x01(\t\"\"\n\x0bSendRequest\x12\x13\n\x0braw_request\x18\x01 \x01(\x0c\"F\n\rForwardPacket\x12\x11\n\traw_reply\x18\x01 \x01(\x0c\x12\x0c\n\x04host\x18\x02 \x01(\t\x12\x14\n\x0creceive_time\x18\x03 \x01(\t\"2\n\x0f\x43ommandResponse\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x11\n\tsent_time\x18\x02 \x01(\t2\x93\x01\n\x0e\x41nycastService\x12\x41\n\rReceiverAgent\x12\x14.anycast.InitRequest\x1a\x16.anycast.ForwardPacket\"\x00\x30\x01\x12>\n\nSendPacket\x12\x14.anycast.SendRequest\x1a\x18.anycast.CommandResponse\"\x00\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\ranycast.proto\x1a\x19google/protobuf/any.proto\">\n\x07Message\x12\x0c\n\x04type\x18\x01 \x01(\t\x12%\n\x07payload\x18\x02 \x01(\x0b\x32\x14.google.protobuf.Any\"$\n\x0fRegisterPayload\x12\x11\n\tworker_id\x18\x01 \x01(\t\"-\n\x0c\x45rrorPayload\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x0f\n\x07message\x18\x02 \x01(\t\"@\n\x0cStartPayload\x12\x12\n\nsession_id\x18\x01 \x01(\x05\x12\x0c\n\x04hmac\x18\x02 \x01(\t\x12\x0e\n\x06\x66ilter\x18\x03 \x01(\t\"!\n\x0bStopPayload\x12\x12\n\nsession_id\x18\x01 \x01(\x05\"B\n\x0bSendPayload\x12\x12\n\nsession_id\x18\x01 \x01(\x05\x12\x0b\n\x03seq\x18\x02 \x01(\x05\x12\x12\n\nraw_packet\x18\x03 \x01(\x0c\";\n\nAckPayload\x12\x12\n\nsession_id\x18\x01 \x01(\x05\x12\x0b\n\x03seq\x18\x02 \x01(\x05\x12\x0c\n\x04time\x18\x03 \x01(\t\"D\n\x0cReplyPayload\x12\x12\n\nsession_id\x18\x01 \x01(\x05\x12\x12\n\nraw_packet\x18\x02 \x01(\x0c\x12\x0c\n\x04time\x18\x03 \x01(\t\",\n\x07Request\x12\x0f\n\x07\x63ommand\x18\x01 \x01(\t\x12\x10\n\x08settings\x18\x02 \x01(\t\"(\n\x08Response\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x0e\n\x06output\x18\x02 \x01(\t2\\\n\x0e\x41nycastService\x12&\n\x0cWorkerStream\x12\x08.Message\x1a\x08.Message(\x01\x30\x01\x12\"\n\x0bUserRequest\x12\x08.Request\x1a\t.Responseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'anycast_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_INITREQUEST']._serialized_start=26
-  _globals['_INITREQUEST']._serialized_end=83
-  _globals['_SENDREQUEST']._serialized_start=85
-  _globals['_SENDREQUEST']._serialized_end=119
-  _globals['_FORWARDPACKET']._serialized_start=121
-  _globals['_FORWARDPACKET']._serialized_end=191
-  _globals['_COMMANDRESPONSE']._serialized_start=193
-  _globals['_COMMANDRESPONSE']._serialized_end=243
-  _globals['_ANYCASTSERVICE']._serialized_start=246
-  _globals['_ANYCASTSERVICE']._serialized_end=393
+  _globals['_MESSAGE']._serialized_start=44
+  _globals['_MESSAGE']._serialized_end=106
+  _globals['_REGISTERPAYLOAD']._serialized_start=108
+  _globals['_REGISTERPAYLOAD']._serialized_end=144
+  _globals['_ERRORPAYLOAD']._serialized_start=146
+  _globals['_ERRORPAYLOAD']._serialized_end=191
+  _globals['_STARTPAYLOAD']._serialized_start=193
+  _globals['_STARTPAYLOAD']._serialized_end=257
+  _globals['_STOPPAYLOAD']._serialized_start=259
+  _globals['_STOPPAYLOAD']._serialized_end=292
+  _globals['_SENDPAYLOAD']._serialized_start=294
+  _globals['_SENDPAYLOAD']._serialized_end=360
+  _globals['_ACKPAYLOAD']._serialized_start=362
+  _globals['_ACKPAYLOAD']._serialized_end=421
+  _globals['_REPLYPAYLOAD']._serialized_start=423
+  _globals['_REPLYPAYLOAD']._serialized_end=491
+  _globals['_REQUEST']._serialized_start=493
+  _globals['_REQUEST']._serialized_end=537
+  _globals['_RESPONSE']._serialized_start=539
+  _globals['_RESPONSE']._serialized_end=579
+  _globals['_ANYCASTSERVICE']._serialized_start=581
+  _globals['_ANYCASTSERVICE']._serialized_end=673
 # @@protoc_insertion_point(module_scope)

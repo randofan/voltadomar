@@ -115,26 +115,26 @@ struct tr_conf {
 };
 
 struct tr_result {
-	int		 seq;
-	int		 row;
-	int		 dup;
-	int		 timeout;
-	uint8_t		 ttl;
-	uint8_t		 resp_ttl;
-	char		 hbuf[NI_MAXHOST];
-	char		 inetname[NI_MAXHOST];
-	char		*asn;
-	char		*exthdr;
-	char		 to[NI_MAXHOST];
-	int		 cc;
-	struct timeval	 t1;
-	struct timeval	 t2;
-	char		 icmp_code[sizeof("!<255>")];
-	char		 tos[sizeof(" (TOS=255!)")];
-	int		 got_there;
-	int		 unreachable;
-	int		 inetname_done;
-	int		 asn_done;
+	int		 seq;            // Sequence number of the probe
+	int		 row;            // Row number in the result table
+	int		 dup;            // Duplicate response indicator
+	int		 timeout;        // Timeout indicator
+	uint8_t		 ttl;            // Time-to-live value of the probe
+	uint8_t		 resp_ttl;       // Time-to-live value of the response
+	char		 hbuf[NI_MAXHOST]; // Hostname buffer
+	char		 inetname[NI_MAXHOST]; // Internet name buffer
+	char		*asn;           // Autonomous System Number
+	char		*exthdr;        // ICMP extension header
+	char		 to[NI_MAXHOST]; // Destination address buffer
+	int		 cc;             // Character count of the response
+	struct timeval	 t1;             // Time when the probe was sent
+	struct timeval	 t2;             // Time when the response was received
+	char		 icmp_code[sizeof("!<255>")]; // ICMP code string
+	char		 tos[sizeof(" (TOS=255!)")];  // Type of Service string
+	int		 got_there;      // Indicator if the probe reached the destination
+	int		 unreachable;    // Indicator if the destination is unreachable
+	int		 inetname_done;  // Indicator if the internet name resolution is done
+	int		 asn_done;       // Indicator if the ASN resolution is done
 };
 
 extern int		*waiting_ttls;

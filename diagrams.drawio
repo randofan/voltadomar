@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram name="Page-1" id="tWezB2ck2QAuVJHFnouS">
-        <mxGraphModel dx="976" dy="250" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="760" dy="160" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -138,6 +138,36 @@
                 </mxCell>
                 <mxCell id="JVptZoE7rjW-e9TxTJ25-43" value="2. Receive replies&lt;br&gt;- update receive timestamp in t2&lt;br&gt;- if out of timeout bounds, then &lt;br&gt;&amp;nbsp; timeout = true&lt;br&gt;- if ICMP reply is &quot;destination &lt;br&gt;&amp;nbsp; unreachable&quot;, then it got_there" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
                     <mxGeometry x="50" y="560" width="186" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="2" value="Controller" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+                    <mxGeometry x="502" y="144" width="61" height="149" as="geometry"/>
+                </mxCell>
+                <mxCell id="3" value="Edge" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+                    <mxGeometry x="640" y="144" width="61" height="151" as="geometry"/>
+                </mxCell>
+                <mxCell id="4" value="Register" style="endArrow=classic;html=1;exitX=0;exitY=0.25;exitDx=0;exitDy=0;entryX=1;entryY=0.25;entryDx=0;entryDy=0;" parent="1" source="3" target="2" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="537" y="200" as="sourcePoint"/>
+                        <mxPoint x="587" y="150" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="5" value="Start" style="endArrow=classic;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="2" target="3" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="585" y="251" as="sourcePoint"/>
+                        <mxPoint x="635" y="201" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="6" value="Ack/Error" style="endArrow=classic;html=1;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=1;entryY=0.75;entryDx=0;entryDy=0;" parent="1" source="3" target="2" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="556" y="225" as="sourcePoint"/>
+                        <mxPoint x="606" y="175" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="7" value="Run" style="endArrow=classic;html=1;exitX=0.999;exitY=0.955;exitDx=0;exitDy=0;exitPerimeter=0;" parent="1" source="2" edge="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="571" y="293" as="sourcePoint"/>
+                        <mxPoint x="641" y="287" as="targetPoint"/>
+                    </mxGeometry>
                 </mxCell>
             </root>
         </mxGraphModel>

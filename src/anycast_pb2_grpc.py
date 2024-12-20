@@ -34,28 +34,28 @@ class AnycastServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.ReceiverAgent = channel.unary_stream(
-                '/anycast.AnycastService/ReceiverAgent',
-                request_serializer=anycast__pb2.InitRequest.SerializeToString,
-                response_deserializer=anycast__pb2.ForwardPacket.FromString,
+        self.WorkerStream = channel.stream_stream(
+                '/AnycastService/WorkerStream',
+                request_serializer=anycast__pb2.Message.SerializeToString,
+                response_deserializer=anycast__pb2.Message.FromString,
                 _registered_method=True)
-        self.SendPacket = channel.unary_unary(
-                '/anycast.AnycastService/SendPacket',
-                request_serializer=anycast__pb2.SendRequest.SerializeToString,
-                response_deserializer=anycast__pb2.CommandResponse.FromString,
+        self.UserRequest = channel.unary_unary(
+                '/AnycastService/UserRequest',
+                request_serializer=anycast__pb2.Request.SerializeToString,
+                response_deserializer=anycast__pb2.Response.FromString,
                 _registered_method=True)
 
 
 class AnycastServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
-    def ReceiverAgent(self, request, context):
+    def WorkerStream(self, request_iterator, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def SendPacket(self, request, context):
+    def UserRequest(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -64,21 +64,21 @@ class AnycastServiceServicer(object):
 
 def add_AnycastServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'ReceiverAgent': grpc.unary_stream_rpc_method_handler(
-                    servicer.ReceiverAgent,
-                    request_deserializer=anycast__pb2.InitRequest.FromString,
-                    response_serializer=anycast__pb2.ForwardPacket.SerializeToString,
+            'WorkerStream': grpc.stream_stream_rpc_method_handler(
+                    servicer.WorkerStream,
+                    request_deserializer=anycast__pb2.Message.FromString,
+                    response_serializer=anycast__pb2.Message.SerializeToString,
             ),
-            'SendPacket': grpc.unary_unary_rpc_method_handler(
-                    servicer.SendPacket,
-                    request_deserializer=anycast__pb2.SendRequest.FromString,
-                    response_serializer=anycast__pb2.CommandResponse.SerializeToString,
+            'UserRequest': grpc.unary_unary_rpc_method_handler(
+                    servicer.UserRequest,
+                    request_deserializer=anycast__pb2.Request.FromString,
+                    response_serializer=anycast__pb2.Response.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'anycast.AnycastService', rpc_method_handlers)
+            'AnycastService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('anycast.AnycastService', rpc_method_handlers)
+    server.add_registered_method_handlers('AnycastService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
@@ -86,7 +86,7 @@ class AnycastService(object):
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
-    def ReceiverAgent(request,
+    def WorkerStream(request_iterator,
             target,
             options=(),
             channel_credentials=None,
@@ -96,12 +96,12 @@ class AnycastService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_stream(
-            request,
+        return grpc.experimental.stream_stream(
+            request_iterator,
             target,
-            '/anycast.AnycastService/ReceiverAgent',
-            anycast__pb2.InitRequest.SerializeToString,
-            anycast__pb2.ForwardPacket.FromString,
+            '/AnycastService/WorkerStream',
+            anycast__pb2.Message.SerializeToString,
+            anycast__pb2.Message.FromString,
             options,
             channel_credentials,
             insecure,
@@ -113,7 +113,7 @@ class AnycastService(object):
             _registered_method=True)
 
     @staticmethod
-    def SendPacket(request,
+    def UserRequest(request,
             target,
             options=(),
             channel_credentials=None,
@@ -126,9 +126,9 @@ class AnycastService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/anycast.AnycastService/SendPacket',
-            anycast__pb2.SendRequest.SerializeToString,
-            anycast__pb2.CommandResponse.FromString,
+            '/AnycastService/UserRequest',
+            anycast__pb2.Request.SerializeToString,
+            anycast__pb2.Response.FromString,
             options,
             channel_credentials,
             insecure,
