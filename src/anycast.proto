@@ -2,6 +2,8 @@ syntax = "proto3";
 
 import "google/protobuf/any.proto";
 
+# TODO gRPC only supports int32, but the session_id and sequence numbers should both be uint16
+
 service AnycastService {
   rpc WorkerStream(stream Message) returns (stream Message);
   rpc UserRequest(Request) returns (Response);

@@ -1,11 +1,12 @@
+import ast
 import argparse
 import logging
-from asyncio import Event, wait_for, TimeoutError
+from asyncio import Event, wait_for, TimeoutError, Lock
 from abc import abstractmethod
 from datetime import datetime
 from scapy.all import IP, ICMP, UDP
 from constants import TracerouteConf, TracerouteResult, BASE_PORT
-from utils import resolve_ip, build_udp_packet, resolve_hostname
+from utils import resolve_ip, build_udp_probe, resolve_hostname
 
 logger = logging.getLogger()
 
@@ -13,8 +14,9 @@ logger = logging.getLogger()
 class Program:
     """Abstract class for a program that can be run by the controller."""
 
-    def __init__(self, controller, session_id):
-        self.settings = {"hmac": None, "filter": "icmp"}  # universal settings for all agents
+    def __init__(self, controller, session_id, settings):
+        self.settings = ast.literal_eval(settings)
+        self.settings["filter"] = f"icmp and icmp[28:2] = {session_id:#04x}"
         self.controller = controller
         self.session_id = session_id
 
@@ -35,16 +37,13 @@ class Traceroute(Program):
     def __init__(self, controller, session_id):
         super().__init__(controller, session_id)
         self._finished = Event()
+        self._tr_lock = Lock()  # TODO make this an array
         self.source_port = session_id
 
         self.sender_host = None
         self.destination_host = None
         self.destination_ip = None
-        self.tr_conf = TracerouteConf(
-            probe_num=3,
-            max_ttl=20,
-            timeout=5
-        )
+        self.tr_conf = TracerouteConf()
         self.waiting_tr = self.tr_conf.probe_num * self.tr_conf.max_ttl
         self.tr_results = [
             TracerouteResult(
@@ -62,8 +61,9 @@ class Traceroute(Program):
         parser = argparse.ArgumentParser()
         parser.add_argument('source', type=str)
         parser.add_argument('destination', type=str)
-        parser.add_argument('-m', '--max-hops', type=int, default=30)
+        parser.add_argument('-m', '--max-hops', type=int, default=20)
         parser.add_argument('-t', '--timeout', type=int, default=5)
+        parser.add_argument('-n', '--probe-num', type=int, default=3)
 
         args = parser.parse_args(command.split()[1:])  # exclude 'volta' prefix
 
@@ -71,6 +71,7 @@ class Traceroute(Program):
         self.destination_host = args.destination
         self.tr_conf.max_ttl = args.max_hops
         self.tr_conf.timeout = args.timeout
+        self.tr_conf.probe_num = args.probe_num
 
         self.destination_ip = resolve_ip(self.destination_host)
 
@@ -80,19 +81,21 @@ class Traceroute(Program):
             f"{self.tr_conf.max_ttl} hops max"
         )
 
+        await self.controller.start_agents(self.session_id, self.settings)
+
         for index, result in enumerate(self.tr_results):
             ttl = (index // self.tr_conf.probe_num) + 1
 
             result['seq'] = index
 
-            packet = build_udp_packet(
+            packet = build_udp_probe(
                 destination_ip=self.destination_ip,
                 ttl=ttl,
                 sequence=index,
                 source_port=self.source_port,
                 base_port=BASE_PORT,
             )
-            await self.controller.send_packet(self.sender_host, packet, index)
+            await self.controller.send_packet(self.session_id, self.sender_host, packet, index)
 
         logger.debug("Finished sending packets")
 
@@ -101,6 +104,8 @@ class Traceroute(Program):
         except TimeoutError:
             # Timed out, so print what we have so far
             pass
+
+        await self.controller.stop_agents(self.session_id)
         return self._print_results()
 
     async def handle_ack(self, ack_payload):
