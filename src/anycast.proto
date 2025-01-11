@@ -23,16 +23,6 @@ message ErrorPayload {
   string message = 2;
 }
 
-message StartPayload {
-  int32 session_id = 1;
-  string hmac = 2;
-  string filter = 3;
-}
-
-message StopPayload {
-  int32 session_id = 1;
-}
-
 message SendPayload {
   int32 session_id = 1;
   int32 seq = 2;
@@ -46,9 +36,8 @@ message AckPayload {
 }
 
 message ReplyPayload {
-  int32 session_id = 1;
-  bytes raw_packet = 2;
-  string time = 3;
+  bytes raw_packet = 1;
+  string time = 2;
 }
 
 message Request {

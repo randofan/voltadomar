@@ -3,7 +3,7 @@ import grpc.aio
 from asyncio import run
 import logging
 import anycast_pb2_grpc
-from anycast_pb2 import ReplyPayload, AckPayload, SendPayload, Message, StartPayload, ErrorPayload, RegisterPayload, StopPayload, Response
+from anycast_pb2 import ReplyPayload, AckPayload, SendPayload, Message, ErrorPayload, RegisterPayload, Response
 from google.protobuf.any_pb2 import Any
 from traceroute import Traceroute
 
@@ -49,12 +49,6 @@ class Controller(anycast_pb2_grpc.AnycastServiceServicer):
                     else:
                         logger.error(f"Received ACK for unknown session ID {session_id}")
 
-                elif message.type == "ERROR":
-                    # TODO improve error information
-                    error_payload = ErrorPayload()
-                    message.payload.Unpack(error_payload)
-                    logger.error(f"Error from {worker_id} code: {error_payload.code} message: {error_payload.message}")
-
                 elif message.type == "REPLY":
                     if not worker_id:
                         logger.error("Received REPLY without preceding REGISTER")
@@ -62,11 +56,18 @@ class Controller(anycast_pb2_grpc.AnycastServiceServicer):
                     logger.debug(f"REPLY from {worker_id}")
                     reply_payload = ReplyPayload()
                     message.payload.Unpack(reply_payload)
-                    session_id = reply_payload.session_id
-                    if session_id in self.programs:
-                        self.programs[session_id].handle_reply(reply_payload, worker_id)
+                    for program in self.programs.values():
+                        if program.filter_packets(reply_payload):
+                            program.handle_reply(reply_payload)
+                            break
                     else:
-                        logger.error(f"Received REPLY for unknown session ID {session_id}")
+                        logger.error("Received REPLY for unknown packet")
+
+                elif message.type == "ERROR":
+                    # TODO improve error information
+                    error_payload = ErrorPayload()
+                    message.payload.Unpack(error_payload)
+                    logger.error(f"Error from {worker_id} code: {error_payload.code} message: {error_payload.message}")
 
                 else:
                     logger.error(f"Unknown message type: {message.type}")
@@ -78,24 +79,6 @@ class Controller(anycast_pb2_grpc.AnycastServiceServicer):
             logger.error(f"Error processing worker stream: {e}")
         finally:
             self.worker_streams.pop(worker_id, None)
-
-    async def start_agents(self, settings, session_id):
-        """Start agents on all workers for a session with settings."""
-        for worker_id, context in self.worker_streams.items():
-            packed = Any()
-            packed.Pack(StartPayload(session_id=session_id, **settings))
-            message = Message(type="START", payload=packed)
-            await context.write(message)
-            logger.debug(f"Sent START to worker {worker_id} with settings: {self.settings}")
-
-    async def stop_agents(self, session_id):
-        """Stop agents on all workers for a session."""
-        for worker_id, context in self.worker_streams.values():
-            packed = Any()
-            packed.Pack(StopPayload(session_id=session_id))
-            message = Message(type="STOP", payload=packed)
-            await context.write(message)
-            logger.debug(f"Sent STOP to worker {worker_id}")
 
     async def send_packet(self, session_id, worker_id, packet, packet_id):
         """Send a packet through a worker."""
@@ -116,12 +99,11 @@ class Controller(anycast_pb2_grpc.AnycastServiceServicer):
         """Handle a user request to run a program."""
         try:
             command = request.command
-            settings = request.settings
             session_id = self.next_session_id
             self.next_session_id = (self.next_session_id + 1) % 65535
             # TODO extend this to support multiple programs, not just traceroute
-            self.programs[session_id] = Traceroute(self, session_id, settings)
-            logger.info(f"Starting program {session_id} with command: {command} and settings: {settings}")
+            self.programs[session_id] = Traceroute(self, session_id)
+            logger.info(f"Starting program {session_id} with command: {command}")
             output = await self.programs[session_id].run(command)
             return Response(code=200, output=output)
         except Exception as e:

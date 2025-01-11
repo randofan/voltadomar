@@ -1,4 +1,3 @@
-import ast
 import argparse
 import logging
 from asyncio import Event, wait_for, TimeoutError, Lock
@@ -14,22 +13,28 @@ logger = logging.getLogger()
 class Program:
     """Abstract class for a program that can be run by the controller."""
 
-    def __init__(self, controller, session_id, settings):
-        self.settings = ast.literal_eval(settings)
-        self.settings["filter"] = f"icmp and icmp[28:2] = {session_id:#04x}"
+    def __init__(self, controller, session_id):
         self.controller = controller
         self.session_id = session_id
 
     @abstractmethod
     async def run(self, command):
+        """Run the program with the given command."""
         raise NotImplementedError
 
     @abstractmethod
     async def handle_ack(self, ack_payload):
+        """Handle an ACK packet."""
         raise NotImplementedError
 
     @abstractmethod
     async def handle_reply(self, reply_payload, worker_id):
+        """Handle a REPLY packet."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def filter_packets(self, packet):
+        """Only accept packets that match the program session ID."""
         raise NotImplementedError
 
 
@@ -81,8 +86,6 @@ class Traceroute(Program):
             f"{self.tr_conf.max_ttl} hops max"
         )
 
-        await self.controller.start_agents(self.session_id, self.settings)
-
         for index, result in enumerate(self.tr_results):
             ttl = (index // self.tr_conf.probe_num) + 1
 
@@ -105,8 +108,13 @@ class Traceroute(Program):
             # Timed out, so print what we have so far
             pass
 
-        await self.controller.stop_agents(self.session_id)
         return self._print_results()
+
+    def filter_packets(self, packet):
+        if len(packet) < 36:
+            return False
+        extracted = int.from_bytes(packet[28:30], byteorder='big')
+        return extracted == self.source_port
 
     async def handle_ack(self, ack_payload):
         seq = ack_payload.seq
@@ -174,7 +182,7 @@ class Traceroute(Program):
         # TODO this format doesn't exactly match the original traceroute.
         #
         # In traceroute, for a given row/TTL, it doesn't print any repetitive
-        # gateways. Currently, the code below only omits repetitive gateways
+        # gateways. Currently, this program below **only** omits repetitive gateways
         # if all the gateways are the same. For example, in traceroute:
         # 12  142.251.50.175 (142.251.50.175)  14.856 ms  14.959 ms sea30s10-in-f4.1e100.net (142.251.33.100)  14.779 ms
         #                                                 ^ same gateway as previous, despite third being different
