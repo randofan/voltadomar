@@ -10,12 +10,12 @@ service AnycastService {
 }
 
 message Message {
-  string type = 1;                    // Message type: "REGISTER", "START", "STOP", "SEND", "ACK", "REPLY", "ERROR"
+  string type = 1;                    // Message type: "REGISTER", "START", "STOP", "JOB", "DONE", "REPLY", "ERROR"
   google.protobuf.Any payload = 2;
 }
 
 message RegisterPayload {
-  string worker_id = 1;
+  string agent_id = 1;
 }
 
 message ErrorPayload {
@@ -23,16 +23,28 @@ message ErrorPayload {
   string message = 2;
 }
 
-message SendPayload {
-  int32 session_id = 1;
-  int32 seq = 2;
-  bytes raw_packet = 3;
+message CancelPayload {
 }
 
-message AckPayload {
+message UdpRequest {
+  int32 seq = 1;
+  int32 ttl = 2;
+}
+
+message JobPayload {
   int32 session_id = 1;
-  int32 seq = 2;
-  string time = 3;
+  string dst_ip = 2;
+  repeated UdpRequest udp_requests = 4;
+}
+
+message UdpAck {
+  int32 seq = 1;
+  string sent_time = 2;
+}
+
+message DonePayload {
+  int32 session_id = 1;
+  repeated UdpAck udp_acks = 2;
 }
 
 message ReplyPayload {

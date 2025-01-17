@@ -2,8 +2,7 @@ import socket
 from scapy.all import IP, UDP
 
 
-def build_udp_probe(destination_ip, ttl, sequence, source_port, base_port):
-    dst_port = base_port + sequence
+def build_udp_probe(destination_ip, ttl, source_port, dst_port):
     packet = IP(dst=destination_ip, ttl=ttl) / UDP(sport=source_port, dport=dst_port)
     return bytes(packet)
 

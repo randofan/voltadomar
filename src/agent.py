@@ -1,16 +1,18 @@
 import grpc.aio
 import logging
-import asyncio
+from asyncio import get_event_loop, sleep, gather, run, wait, FIRST_COMPLETED
 import socket
 from google.protobuf.any_pb2 import Any
-from anycast_pb2 import Message, AckPayload, SendPayload, ErrorPayload, ReplyPayload
+from anycast_pb2 import Message, JobPayload, ErrorPayload, ReplyPayload, RegisterPayload, DonePayload, UdpAck
 from anycast_pb2_grpc import AnycastServiceStub
 from datetime import datetime
+from utils import build_udp_probe
+from worker_group import WorkerGroup
 
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    filename='worker.log',
+    filename='agent.log',
     filemode='w'
 )
 logger = logging.getLogger(__name__)
@@ -18,67 +20,103 @@ logger = logging.getLogger(__name__)
 
 class Agent:
 
-    def __init__(self, worker_id, controller_address):
-        self.worker_id = worker_id
+    def __init__(self, agent_id, controller_address):
+        self.agent_id = agent_id
         self.controller_address = controller_address
-        self.hmac = None
-        self.filter = None
 
-        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.udp_socket.set_blocking(False)
+        self.listener_workers = WorkerGroup(worker_num=3, worker_func=self.listener_worker)
+        self.sender_workers = WorkerGroup(worker_num=3, worker_func=self.sender_worker)
+
+        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+        self.udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+        self.udp_socket.setblocking(False)
 
         self.icmp_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
         self.icmp_socket.setblocking(False)
 
-    async def listener_agent(self, context):
-        await context.write(Message(worker_id=self.worker_id, type="REGISTER"))
-        loop = asyncio.get_event_loop()
-        while True:
-            packet, _ = await loop.sock_recv(self.icmp_socket, 65535)
-            packed_payload = Any()
-            packed_payload.Pack(ReplyPayload(raw_packet=packet, time=datetime.now().isoformat()))
-            await context.write(Message(type="REPLY", payload=packed_payload))
+    async def listener_worker(self, sniffed_packet):
+        packet, recv_time = sniffed_packet
+        packed_payload = Any()
+        packed_payload.Pack(ReplyPayload(raw_packet=packet, time=recv_time))
+        return Message(type="REPLY", payload=packed_payload)
 
-    async def sender_agent(self, context, udp_socket):
+    async def sender_worker(self, job_payload):
+        loop = get_event_loop()
+
+        session_id = job_payload.session_id
+        udp_acks = []
+        for udp_request in job_payload.udp_requests:
+            packet = build_udp_probe(
+                destination_ip=job_payload.dst_ip,
+                ttl=udp_request.ttl,
+                source_port=session_id,
+                dst_port=udp_request.seq,
+            )
+            try:
+                await loop.sock_sendto(self.udp_socket, packet, (job_payload.dst_ip, 0))
+                sent_time = datetime.now().isoformat()
+                udp_acks.append(UdpAck(seq=udp_request.seq, sent_time=sent_time))
+            except BlockingIOError:
+                logger.error("Socket is full, try again later")
+                await sleep(0.1)
+
+        done_payload = Any()
+        done_payload.Pack(DonePayload(session_id=session_id, udp_acks=udp_acks))
+        return Message(type="DONE", payload=done_payload)
+
+    async def handle_controller(self, context):
         async for message in context:
             try:
-                if message.type == "SEND":
-                    send_payload = SendPayload()
-                    message.payload.Unpack(send_payload)
-                    session_id = send_payload.session_id
-                    raw_packet = send_payload.raw_packet
-                    seq = send_payload.seq
-                    logger.debug(f"[Worker {self.worker_id}] Received SEND command")
-
-                    loop = asyncio.get_event_loop()
-                    loop.sock_sendto(udp_socket, raw_packet)
-                    sent_time = datetime.now().isoformat()
-
-                    packed_payload = Any()
-                    packed_payload.Pack(AckPayload(session_id=session_id, seq=seq, time=sent_time))
-                    logger.debug(f"[Worker {self.worker_id}] Sending ACK for sequence {seq}")
-                    await context.write(Message(type="ACK", payload=packed_payload))
+                if message.type == "JOB":
+                    logger.debug("Received JOB command")
+                    job_payload = JobPayload()
+                    message.payload.Unpack(job_payload)
+                    await self.sender_workers.add_input(job_payload)
 
                 else:
-                    logger.error(f"[Worker {self.worker_id}] Unknown message type {message.type}")
+                    logger.error(f"Unknown message type {message.type}")
                     continue
 
             except Exception as e:
-                logger.error(f"[Worker {self.worker_id}] Error sending packet: {e}")
+                logger.error(f"Error sending packet: {e}")
                 error_payload = Any()
                 error_payload.Pack(ErrorPayload(code=500, message=str(e)))
-                await context.write(Message(type="ERROR", worker_id=self.worker_id, payload=error_payload))
+                await self.sender_workers.add_output(error_payload)
+
+    async def handle_sniffer(self):
+        loop = get_event_loop()
+        while True:
+            try:
+                packet = await loop.sock_recv(self.icmp_socket, 65535)
+                recv_time = datetime.now().isoformat()
+                await self.listener_workers.add_input((packet, recv_time))
+            except BlockingIOError:
+                await sleep(0.1)
+
+    async def handle_output(self):
+        register_payload = Any()
+        register_payload.Pack(RegisterPayload(agent_id=self.agent_id))
+        yield Message(type="REGISTER", payload=register_payload)
+        sender_get, listener_get = self.sender_workers.get_output(), self.listener_workers.get_output()
+        while True:
+            tasks = [sender_get, listener_get]
+            done, _ = await wait(tasks, return_when=FIRST_COMPLETED)
+            for completed in done:
+                message = completed.result()
+                yield message
+                if completed == sender_get:
+                    sender_get = self.sender_workers.get_output()
+                elif completed == listener_get:
+                    listener_get = self.listener_workers.get_output()
 
     async def control_stream(self):
         async with grpc.aio.insecure_channel(self.controller_address) as channel:
             stub = AnycastServiceStub(channel)
-            context = stub.ControlStream(self.listener_agent())
-            await asyncio.gather(
-                self.sender_agent(context),
-                self.listener_agent(context)
-            )
+            context = stub.ControlStream(self.handle_output())
+            gather(self.handle_controller(context),
+                   self.handle_sniffer())
 
 
 if __name__ == "__main__":
-    agent = Agent(worker_id=1, controller_address="localhost:50051")
-    agent.control_stream()
+    agent = Agent(agent_id=1, controller_address="localhost:50051")
+    run(agent.control_stream())
