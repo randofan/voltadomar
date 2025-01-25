@@ -23,12 +23,12 @@ class Program:
         raise NotImplementedError
 
     @abstractmethod
-    async def handle_done(self, ack_payload):
+    def handle_done(self, ack_payload):
         """Handle an DONE packet."""
         raise NotImplementedError
 
     @abstractmethod
-    async def handle_reply(self, reply_payload, worker_id):
+    def handle_reply(self, reply_payload, worker_id):
         """Handle a REPLY packet."""
         raise NotImplementedError
 
@@ -45,10 +45,27 @@ class Traceroute(Program):
         self._tr_lock = Lock()  # TODO make this an array
         self.source_port = session_id
 
-        self.sender_host = None
-        self.destination_host = None
-        self.destination_ip = None
-        self.tr_conf = TracerouteConf()
+    async def run(self, command):
+        """Run the traceroute program."""
+        parser = argparse.ArgumentParser()
+        parser.add_argument('source', type=str)
+        parser.add_argument('destination', type=str)
+        parser.add_argument('-m', '--max-hops', type=int, default=20)
+        parser.add_argument('-t', '--timeout', type=int, default=10)
+        parser.add_argument('-n', '--probe-num', type=int, default=3)
+
+        # Usage: volta <source> <destination> [-m <max hops>] [-t <timeout>] [-n <probe num>]
+        args = parser.parse_args(command.split()[1:])  # exclude 'volta' prefix
+
+        self.tr_conf = TracerouteConf(
+            max_ttl=args.max_hops,
+            timeout=args.timeout,
+            probe_num=args.probe_num
+        )
+
+        self.sender_host = args.source
+        self.destination_host = args.destination
+
         self.received_done = False
         self.waiting_tr = self.tr_conf.probe_num * self.tr_conf.max_ttl
         self.tr_results = [
@@ -63,55 +80,41 @@ class Traceroute(Program):
             ) for i in range(self.waiting_tr)
         ]
 
-    async def run(self, command):
-        parser = argparse.ArgumentParser()
-        parser.add_argument('source', type=str)
-        parser.add_argument('destination', type=str)
-        parser.add_argument('-m', '--max-hops', type=int, default=20)
-        parser.add_argument('-t', '--timeout', type=int, default=5)
-        parser.add_argument('-n', '--probe-num', type=int, default=3)
-
-        args = parser.parse_args(command.split()[1:])  # exclude 'volta' prefix
-
-        self.sender_host = args.source
-        self.destination_host = args.destination
-        self.tr_conf.max_ttl = args.max_hops
-        self.tr_conf.timeout = args.timeout
-        self.tr_conf.probe_num = args.probe_num
-
         self.destination_ip = resolve_ip(self.destination_host)
 
         logger.info(
             f"Traceroute to {self.destination_host} ({self.destination_ip}) "
             f"from {self.sender_host}, {self.tr_conf.probe_num} probes, "
-            f"{self.tr_conf.max_ttl} hops max"
+            f"{self.tr_conf.max_ttl} hops max, timeout {self.tr_conf.timeout} seconds"
         )
 
-        udp_requests = []
-        seq = 0
-        for ttl in range(1, self.tr_conf.max_ttl + 1):
-            for _ in range(self.tr_conf.probe_num):
-                udp_requests.append((ttl, seq + BASE_PORT))
-                seq += 1
-        self.controller.send_job(self.session_id, self.destination_ip, udp_requests)
-
-        logger.debug("Finished sending packets")
+        await self.controller.send_job(self.session_id, self.sender_host, self.destination_ip,
+                                       self.tr_conf.max_ttl, self.tr_conf.probe_num, BASE_PORT)
+        logger.debug("Finished sending JOB")
 
         try:
             await wait_for(self._finished.wait(), timeout=self.tr_conf.timeout)
+            logger.debug("Finished waiting for results")
         except TimeoutError:
             # Timed out, so print what we have so far
+            logger.debug("Timed out waiting for results")
             pass
 
         return self._print_results()
 
-    def filter_packets(self, packet):
-        if len(packet) < 36:
+    def filter_packets(self, raw_packet):
+        if len(raw_packet) < 36:
             return False
-        extracted = int.from_bytes(packet[28:30], byteorder='big')
-        return extracted == self.source_port
+        ip = IP(raw_packet)
+        icmp = ip[ICMP]
+        inner_ip = IP(bytes(icmp.payload))
+        udp = inner_ip[UDP]
+        src_port = udp.sport
 
-    async def handle_done(self, done_payload):
+        logger.debug(f"Extracted source port: {src_port} expected {self.source_port}")
+        return src_port == self.source_port
+
+    def handle_done(self, done_payload):
         udp_acks = done_payload.udp_acks
         for udp_ack in udp_acks:
             seq = udp_ack.seq - BASE_PORT
@@ -125,19 +128,22 @@ class Traceroute(Program):
                 logger.error(f"ACK duplicate result for sequence {seq} (t1={result.t1}, t2={result.t2})")
                 continue
             result.t1 = time
+            logger.debug(f"Updated traceroute result for sequence {seq}: {result}")
 
         self.received_done = True
         if self.received_done and self.waiting_tr == 0:
+            logger.debug("Received DONE and all results, setting finished event")
             self._finished.set()
 
-    async def handle_reply(self, reply_payload, worker_id):
-        raw_reply = reply_payload.raw_packet
+    def handle_reply(self, reply_payload, agent_id):
+        raw_packet = reply_payload.raw_packet
         receive_time = reply_payload.time
-        edge = worker_id
+        edge = agent_id
 
-        ip = IP(raw_reply[14:])
+        ip = IP(raw_packet)
         icmp = ip[ICMP]
-        udp = IP(raw_reply[42:])[UDP]
+        inner_ip = IP(bytes(icmp.payload))
+        udp = inner_ip[UDP]
 
         ip_src = ip.src
         icmp_type = icmp.type
@@ -183,18 +189,17 @@ class Traceroute(Program):
         for ttl in range(1, self.tr_conf.max_ttl + 1):
             line_parts = [str(ttl)]
             start_seq = self.tr_conf.probe_num * (ttl - 1)
-            end_seq = start_seq + self.tr_conf.probe_num
             found_final_dst = False
 
-            for seq in range(start_seq, end_seq):
+            for seq in range(start_seq, start_seq + self.tr_conf.probe_num):
                 current = self.tr_results[seq]
-
-                if current.final_dst:
-                    found_final_dst = True
 
                 if current.timeout:
                     line_parts.append("*")
                     continue
+
+                if current.final_dst:
+                    found_final_dst = True
 
                 if current.gateway != prev_gateway:
                     line_parts.append(f"{resolve_hostname(current.gateway)} ({current.gateway})")

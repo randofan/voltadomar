@@ -26,7 +26,9 @@ if _version_not_supported:
 
 
 class AnycastServiceStub(object):
-    """Missing associated documentation comment in .proto file."""
+    """TODO gRPC only supports int32, but the session_id and sequence numbers should both be uint16
+
+    """
 
     def __init__(self, channel):
         """Constructor.
@@ -34,8 +36,8 @@ class AnycastServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.WorkerStream = channel.stream_stream(
-                '/AnycastService/WorkerStream',
+        self.ControlStream = channel.stream_stream(
+                '/AnycastService/ControlStream',
                 request_serializer=anycast__pb2.Message.SerializeToString,
                 response_deserializer=anycast__pb2.Message.FromString,
                 _registered_method=True)
@@ -47,9 +49,11 @@ class AnycastServiceStub(object):
 
 
 class AnycastServiceServicer(object):
-    """Missing associated documentation comment in .proto file."""
+    """TODO gRPC only supports int32, but the session_id and sequence numbers should both be uint16
 
-    def WorkerStream(self, request_iterator, context):
+    """
+
+    def ControlStream(self, request_iterator, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -64,8 +68,8 @@ class AnycastServiceServicer(object):
 
 def add_AnycastServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'WorkerStream': grpc.stream_stream_rpc_method_handler(
-                    servicer.WorkerStream,
+            'ControlStream': grpc.stream_stream_rpc_method_handler(
+                    servicer.ControlStream,
                     request_deserializer=anycast__pb2.Message.FromString,
                     response_serializer=anycast__pb2.Message.SerializeToString,
             ),
@@ -83,10 +87,12 @@ def add_AnycastServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class AnycastService(object):
-    """Missing associated documentation comment in .proto file."""
+    """TODO gRPC only supports int32, but the session_id and sequence numbers should both be uint16
+
+    """
 
     @staticmethod
-    def WorkerStream(request_iterator,
+    def ControlStream(request_iterator,
             target,
             options=(),
             channel_credentials=None,
@@ -99,7 +105,7 @@ class AnycastService(object):
         return grpc.experimental.stream_stream(
             request_iterator,
             target,
-            '/AnycastService/WorkerStream',
+            '/AnycastService/ControlStream',
             anycast__pb2.Message.SerializeToString,
             anycast__pb2.Message.FromString,
             options,
