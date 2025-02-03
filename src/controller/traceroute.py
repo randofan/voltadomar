@@ -1,52 +1,38 @@
 import argparse
 import logging
-from asyncio import Event, wait_for, TimeoutError, Lock
-from abc import abstractmethod
 from datetime import datetime
-from scapy.all import IP, ICMP, UDP
-from constants import TracerouteConf, TracerouteResult, BASE_PORT
+from asyncio import Event, wait_for, TimeoutError
+
+from anycast.anycast_pb2 import JobPayload
+
+from packets import IP, ICMP, UDP
 from utils import resolve_ip, resolve_hostname
+from controller.models import TracerouteConf, TracerouteResult, BASE_PORT
+from controller.program import Program
 
 logger = logging.getLogger()
-
-
-class Program:
-    """Abstract class for a program that can be run by the controller."""
-
-    def __init__(self, controller, session_id):
-        self.controller = controller
-        self.session_id = session_id
-
-    @abstractmethod
-    async def run(self, command):
-        """Run the program with the given command."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def handle_done(self, ack_payload):
-        """Handle an DONE packet."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def handle_reply(self, reply_payload, worker_id):
-        """Handle a REPLY packet."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def filter_packets(self, packet):
-        """Only accept packets that match the program session ID."""
-        raise NotImplementedError
 
 
 class Traceroute(Program):
     def __init__(self, controller, session_id):
         super().__init__(controller, session_id)
         self._finished = Event()
-        self._tr_lock = Lock()  # TODO make this an array
-        self.source_port = session_id
+
+    def update_state(self):
+        '''
+        Update the state of the program.
+        '''
+        if self.received_done and self.waiting_tr == 0:
+            logger.debug("Traceroute finished")
+            self._finished.set()
+        else:
+            logger.debug("Traceroute still waiting for results")
+            pass
 
     async def run(self, command):
-        """Run the traceroute program."""
+        '''
+        Run the traceroute program.
+        '''
         parser = argparse.ArgumentParser()
         parser.add_argument('source', type=str)
         parser.add_argument('destination', type=str)
@@ -88,8 +74,11 @@ class Traceroute(Program):
             f"{self.tr_conf.max_ttl} hops max, timeout {self.tr_conf.timeout} seconds"
         )
 
-        await self.controller.send_job(self.session_id, self.sender_host, self.destination_ip,
-                                       self.tr_conf.max_ttl, self.tr_conf.probe_num, BASE_PORT)
+        job_payload = JobPayload(session_id=self.session_id, dst_ip=self.destination_ip,
+                                 max_ttl=self.tr_conf.max_ttl, probe_num=self.tr_conf.probe_num,
+                                 base_port=BASE_PORT)
+
+        await self.controller.send_job(self.sender_host, job_payload)
         logger.debug("Finished sending JOB")
 
         try:
@@ -102,22 +91,20 @@ class Traceroute(Program):
 
         return self._print_results()
 
-    def filter_packets(self, raw_packet):
-        if len(raw_packet) < 36:
-            return False
-        ip = IP(raw_packet)
-        icmp = ip[ICMP]
-        inner_ip = IP(bytes(icmp.payload))
-        udp = inner_ip[UDP]
-        src_port = udp.sport
-
-        logger.debug(f"Extracted source port: {src_port} expected {self.source_port}")
-        return src_port == self.source_port
+    def _port_to_seq(self, port):
+        '''
+        Convert a port number to a sequence number.
+        '''
+        # TODO is this best design? bc we're assuming the agent is *adding* seq to base port
+        return port - BASE_PORT
 
     def handle_done(self, done_payload):
+        '''
+        Handles a DONE packet from an agent.
+        '''
         udp_acks = done_payload.udp_acks
         for udp_ack in udp_acks:
-            seq = udp_ack.seq - BASE_PORT
+            seq = self._port_to_seq(udp_ack.seq)
             time = udp_ack.sent_time
             if seq < 0 or seq >= len(self.tr_results):
                 logger.error(f"ACK sequence number {seq} is out of range")
@@ -131,38 +118,43 @@ class Traceroute(Program):
             logger.debug(f"Updated traceroute result for sequence {seq}: {result}")
 
         self.received_done = True
-        if self.received_done and self.waiting_tr == 0:
-            logger.debug("Received DONE and all results, setting finished event")
-            self._finished.set()
+        self.update_state()
 
     def handle_reply(self, reply_payload, agent_id):
+        '''
+        Handles a reply packet from an agent.
+        '''
         raw_packet = reply_payload.raw_packet
         receive_time = reply_payload.time
         edge = agent_id
 
+        if len(raw_packet) < 36:
+            return False
+
         ip = IP(raw_packet)
-        icmp = ip[ICMP]
-        inner_ip = IP(bytes(icmp.payload))
-        udp = inner_ip[UDP]
+        icmp = ICMP(ip.payload)
+        inner_ip = IP(icmp.original_data)
+        udp = UDP(inner_ip.payload)
 
         ip_src = ip.src
         icmp_type = icmp.type
         src_port = udp.sport
         dst_port = udp.dport
 
+        if src_port != self.session_id:
+            logger.debug(f"REPLY source port {src_port} does not match session ID {self.session_id}")
+            return False
+
         logger.debug(f"Received reply from {edge} with receive time: {receive_time}"
                      f" (IP src: {ip_src}, ICMP type: {icmp_type}, UDP sport: {src_port}, UDP dport: {dst_port})")
 
-        if src_port != self.source_port:
-            logger.error(f"REPLY source port {src_port} does not match session ID {self.source_port}")
-            return
-        seq = dst_port - BASE_PORT
+        seq = self._port_to_seq(dst_port)
         if seq < 0 or seq >= len(self.tr_results):
             logger.error(f"REPLY sequence number {seq} is out of range")
-            return
+            return True
         if self.tr_results[seq].t2:
             logger.error(f"REPLY duplicate result for sequence {seq} (t1={self.tr_results[seq].t1}, t2={self.tr_results[seq].t2})")
-            return
+            return True
 
         result = self.tr_results[seq]
         result.t2 = receive_time
@@ -175,10 +167,13 @@ class Traceroute(Program):
         logger.debug(f"Updated traceroute result for sequence {seq}: {result}"
                      f" (Waiting TTLs: {self.waiting_tr})")
 
-        if self.received_done and self.waiting_tr == 0:
-            self._finished.set()
+        self.update_state()
+        return True
 
     def _print_results(self):
+        '''
+        Formats the traceroute results in a human-readable string.
+        '''
         output = []
         output.append(
             f"Traceroute to {self.destination_host} ({self.destination_ip}) "

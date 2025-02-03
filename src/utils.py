@@ -1,13 +1,21 @@
 import socket
-from scapy.all import IP, UDP
+
+from packets import IP, UDP
 
 
 def build_udp_probe(destination_ip, ttl, source_port, dst_port):
-    packet = IP(dst=destination_ip, ttl=ttl) / UDP(sport=source_port, dport=dst_port)
-    return bytes(packet)
+    '''
+    Creates a UDP probe packet with the given parameters.
+    '''
+    ip_packet = IP(dst=destination_ip, ttl=ttl, proto=17)
+    udp_packet = UDP(sport=source_port, dport=dst_port)
+    return bytes(ip_packet) + bytes(udp_packet)
 
 
 def resolve_hostname(ip):
+    '''
+    Resolve the hostname of a given IP address.
+    '''
     try:
         return socket.gethostbyaddr(ip)[0]
     except socket.herror:
@@ -15,6 +23,9 @@ def resolve_hostname(ip):
 
 
 def resolve_ip(hostname):
+    '''
+    Resolve the IP address of a given hostname.
+    '''
     try:
         return socket.gethostbyname(hostname)
     except socket.gaierror:

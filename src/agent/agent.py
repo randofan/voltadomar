@@ -1,13 +1,18 @@
-import grpc.aio
+import argparse
 import logging
-from asyncio import get_event_loop, create_task, sleep, gather, run, wait, FIRST_COMPLETED
 import socket
-from google.protobuf.any_pb2 import Any
-from anycast_pb2 import Message, JobPayload, ErrorPayload, ReplyPayload, RegisterPayload, DonePayload, UdpAck
-from anycast_pb2_grpc import AnycastServiceStub
+import time
 from datetime import datetime
+from asyncio import get_event_loop, create_task, sleep, gather, run, wait, FIRST_COMPLETED
+
+import grpc.aio
+from google.protobuf.any_pb2 import Any
+
+from anycast.anycast_pb2 import Message, JobPayload, ErrorPayload, ReplyPayload, RegisterPayload, DonePayload, UdpAck
+from anycast.anycast_pb2_grpc import AnycastServiceStub
+
 from utils import build_udp_probe
-from worker_manager import WorkerManager
+from agent.worker_manager import WorkerManager
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -23,6 +28,8 @@ class Agent:
         self.agent_id = agent_id
         self.controller_address = controller_address
 
+        # TODO turn this into a dict
+        # TODO pull handlers with controller to abstract class
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
         self.udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
         self.udp_socket.setblocking(False)
@@ -56,7 +63,8 @@ class Agent:
                     dst_port=seq,
                 )
                 await loop.sock_sendto(self.udp_socket, packet, (job_payload.dst_ip, 0))
-                sent_time = datetime.now().isoformat()
+                exact_time = time.time_ns() / 1e9
+                sent_time = datetime.fromtimestamp(exact_time).isoformat()
                 udp_acks.append(UdpAck(seq=seq, sent_time=sent_time))
                 seq += 1
 
@@ -88,7 +96,8 @@ class Agent:
         while True:
             try:
                 packet = await loop.sock_recv(self.icmp_socket, 65535)
-                recv_time = datetime.now().isoformat()
+                exact_time = time.time_ns() / 1e9
+                recv_time = datetime.fromtimestamp(exact_time).isoformat()
                 await self.listener_workers.add_input((packet, recv_time))
             except BlockingIOError:
                 await sleep(0.1)
@@ -116,7 +125,7 @@ class Agent:
                     error_payload.Pack(ErrorPayload(code=500, message=str(e)))
                     yield Message(type="ERROR", payload=error_payload)
 
-    async def main(self):
+    async def run(self):
         self.listener_workers = WorkerManager(worker_num=3, worker_func=self.listener_worker)
         self.sender_workers = WorkerManager(worker_num=3, worker_func=self.sender_worker)
 
@@ -131,5 +140,11 @@ class Agent:
 
 
 if __name__ == "__main__":
-    agent = Agent(agent_id="1", controller_address="localhost:50051")
-    run(agent.main())
+    parser = argparse.ArgumentParser(description="Agent for Anycast Service")
+    parser.add_argument("-a", "--agent_id", required=True, help="The ID of the agent")
+    parser.add_argument("-c", "--controller_address", required=True, help="The address of the controller")
+    args = parser.parse_args()
+
+    # TODO create exectutor class to run the agent - move worker_groups to agent constructor
+    agent = Agent(agent_id=args.agent_id, controller_address=args.controller_address)
+    run(agent.run())

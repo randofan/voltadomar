@@ -11,6 +11,7 @@ class WorkerManager:
         self.output_queue = Queue()
         self.worker_pool = {}
         for i in range(worker_num):
+            # TODO create Worker class and move create_task() into a run() inside
             self.worker_pool[i] = create_task(self.run_job(worker_func))
             logger.debug(f"Worker {i} created and task started.")
 
