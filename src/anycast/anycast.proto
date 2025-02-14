@@ -32,17 +32,11 @@ message JobPayload {
   int32 max_ttl = 3;
   int32 probe_num = 4;
   int32 base_port = 5;
-  // TODO: add repetitions
 }
 
 message UdpAck {
   int32 seq = 1;
   string sent_time = 2;
-}
-
-message AckPayload {
-  int32 session_id = 1;
-  // TODO: eventually move udp_acks here
 }
 
 message DonePayload {

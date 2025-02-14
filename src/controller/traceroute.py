@@ -181,6 +181,7 @@ class Traceroute(Program):
         )
 
         prev_gateway = None
+        prev_receiver = None
         for ttl in range(1, self.tr_conf.max_ttl + 1):
             line_parts = [str(ttl)]
             start_seq = self.tr_conf.probe_num * (ttl - 1)
@@ -196,9 +197,10 @@ class Traceroute(Program):
                 if current.final_dst:
                     found_final_dst = True
 
-                if current.gateway != prev_gateway:
-                    line_parts.append(f"{resolve_hostname(current.gateway)} ({current.gateway})")
+                if current.gateway != prev_gateway or current.receiver != prev_receiver:
+                    line_parts.append(f"{resolve_hostname(current.gateway)} ({current.gateway}) {current.receiver}")
                     prev_gateway = current.gateway
+                    prev_receiver = current.receiver
 
                 t1 = datetime.fromisoformat(current.t1)
                 t2 = datetime.fromisoformat(current.t2)

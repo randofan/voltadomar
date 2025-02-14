@@ -84,6 +84,9 @@ class Controller(anycast_pb2_grpc.AnycastServiceServicer):
 
         except grpc.aio.AioRpcError as e:
             logger.info(f"Agent {agent_id} disconnected: {e}")
+        except KeyboardInterrupt as e:
+            logger.info("Keyboard interrupt")
+            raise e
         except Exception as e:
             logger.error(f"Error processing agent stream: {e}")
         finally:
@@ -102,6 +105,11 @@ class Controller(anycast_pb2_grpc.AnycastServiceServicer):
             logger.info(f"Starting program {session_id} with command: {command}")
             output = await self.programs[session_id].run(command)
             return Response(code=200, output=output)
+        except grpc.aio.AioRpcError as e:
+            logger.info(f"User disconnected: {e}")
+        except KeyboardInterrupt as e:
+            logger.info("Keyboard interrupt")
+            raise e
         except Exception as e:
             logger.error(f"Error processing user request: {e}")
             return Response(code=500, output=str(e))

@@ -8,11 +8,11 @@ from asyncio import get_event_loop, create_task, sleep, gather, run, wait, FIRST
 import grpc.aio
 from google.protobuf.any_pb2 import Any
 
-from anycast.anycast_pb2 import Message, JobPayload, ErrorPayload, ReplyPayload, RegisterPayload, DonePayload, UdpAck
+from anycast.anycast_pb2 import Message, JobPayload, ErrorPayload, RegisterPayload, ReplyPayload, UdpAck, DonePayload
 from anycast.anycast_pb2_grpc import AnycastServiceStub
 
-from utils import build_udp_probe
 from agent.worker_manager import WorkerManager
+from utils import build_udp_probe
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -25,17 +25,22 @@ logger = logging.getLogger(__name__)
 class Agent:
 
     def __init__(self, agent_id, controller_address):
+        # TODO pull handlers with controller to abstract class
+
         self.agent_id = agent_id
         self.controller_address = controller_address
 
-        # TODO turn this into a dict
-        # TODO pull handlers with controller to abstract class
-        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
-        self.udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
-        self.udp_socket.setblocking(False)
+        self.listener_workers = WorkerManager(worker_num=3, worker_func=self.listener_worker)
+        self.sender_workers = WorkerManager(worker_num=3, worker_func=self.sender_worker)
 
-        self.icmp_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
-        self.icmp_socket.setblocking(False)
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+        udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+        udp_socket.setblocking(False)
+
+        icmp_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+        icmp_socket.setblocking(False)
+
+        self.sockets = {"udp": udp_socket, "icmp": icmp_socket}
 
     async def listener_worker(self, sniffed_packet):
         packet, recv_time = sniffed_packet
@@ -62,7 +67,7 @@ class Agent:
                     source_port=session_id,
                     dst_port=seq,
                 )
-                await loop.sock_sendto(self.udp_socket, packet, (job_payload.dst_ip, 0))
+                await loop.sock_sendto(self.sockets["udp"], packet, (job_payload.dst_ip, 0))
                 exact_time = time.time_ns() / 1e9
                 sent_time = datetime.fromtimestamp(exact_time).isoformat()
                 udp_acks.append(UdpAck(seq=seq, sent_time=sent_time))
@@ -95,7 +100,7 @@ class Agent:
         loop = get_event_loop()
         while True:
             try:
-                packet = await loop.sock_recv(self.icmp_socket, 65535)
+                packet = await loop.sock_recv(self.sockets["icmp"], 65535)
                 exact_time = time.time_ns() / 1e9
                 recv_time = datetime.fromtimestamp(exact_time).isoformat()
                 await self.listener_workers.add_input((packet, recv_time))
@@ -126,8 +131,8 @@ class Agent:
                     yield Message(type="ERROR", payload=error_payload)
 
     async def run(self):
-        self.listener_workers = WorkerManager(worker_num=3, worker_func=self.listener_worker)
-        self.sender_workers = WorkerManager(worker_num=3, worker_func=self.sender_worker)
+        self.listener_workers.run_jobs()
+        self.sender_workers.run_jobs()
 
         async with grpc.aio.insecure_channel(self.controller_address) as channel:
             stub = AnycastServiceStub(channel)
@@ -141,10 +146,9 @@ class Agent:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Agent for Anycast Service")
-    parser.add_argument("-a", "--agent_id", required=True, help="The ID of the agent")
-    parser.add_argument("-c", "--controller_address", required=True, help="The address of the controller")
+    parser.add_argument("-a", "--agent_id", default="1", help="The ID of the agent")
+    parser.add_argument("-c", "--controller_address", default="127.0.0.1:50051", help="The address of the controller")
     args = parser.parse_args()
 
-    # TODO create exectutor class to run the agent - move worker_groups to agent constructor
     agent = Agent(agent_id=args.agent_id, controller_address=args.controller_address)
     run(agent.run())
