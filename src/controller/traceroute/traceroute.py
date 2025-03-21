@@ -1,4 +1,3 @@
-import argparse
 import logging
 from datetime import datetime
 from asyncio import Event, wait_for, TimeoutError
@@ -7,18 +6,19 @@ from anycast.anycast_pb2 import JobPayload
 
 from packets import IP, ICMP, UDP
 from utils import resolve_ip, resolve_hostname
-from controller.models import TracerouteConf, TracerouteResult, BASE_PORT
+from controller.traceroute import TracerouteResult
 from controller.program import Program
 
 logger = logging.getLogger()
 
 
 class Traceroute(Program):
-    def __init__(self, controller, session_id):
-        super().__init__(controller, session_id)
+    def __init__(self, controller, conf):
+        super().__init__(controller)
         self._finished = Event()
+        self.tr_conf = conf
 
-    def update_state(self):
+    def check_done(self):
         '''
         Update the state of the program.
         '''
@@ -29,29 +29,10 @@ class Traceroute(Program):
             logger.debug("Traceroute still waiting for results")
             pass
 
-    async def run(self, command):
+    async def run(self):
         '''
         Run the traceroute program.
         '''
-        parser = argparse.ArgumentParser()
-        parser.add_argument('source', type=str)
-        parser.add_argument('destination', type=str)
-        parser.add_argument('-m', '--max-hops', type=int, default=20)
-        parser.add_argument('-t', '--timeout', type=int, default=10)
-        parser.add_argument('-n', '--probe-num', type=int, default=3)
-
-        # Usage: volta <source> <destination> [-m <max hops>] [-t <timeout>] [-n <probe num>]
-        args = parser.parse_args(command.split()[1:])  # exclude 'volta' prefix
-
-        self.tr_conf = TracerouteConf(
-            max_ttl=args.max_hops,
-            timeout=args.timeout,
-            probe_num=args.probe_num
-        )
-
-        self.sender_host = args.source
-        self.destination_host = args.destination
-
         self.received_done = False
         self.waiting_tr = self.tr_conf.probe_num * self.tr_conf.max_ttl
         self.tr_results = [
@@ -66,6 +47,9 @@ class Traceroute(Program):
             ) for i in range(self.waiting_tr)
         ]
 
+        self.session_id = self.tr_conf.start_id
+        self.sender_host = self.tr_conf.sender_host
+        self.destination_host = self.tr_conf.destination_host
         self.destination_ip = resolve_ip(self.destination_host)
 
         logger.info(
@@ -76,8 +60,7 @@ class Traceroute(Program):
 
         job_payload = JobPayload(session_id=self.session_id, dst_ip=self.destination_ip,
                                  max_ttl=self.tr_conf.max_ttl, probe_num=self.tr_conf.probe_num,
-                                 base_port=BASE_PORT)
-
+                                 base_port=self._seq_to_port(0))
         await self.controller.send_job(self.sender_host, job_payload)
         logger.debug("Finished sending JOB")
 
@@ -91,12 +74,17 @@ class Traceroute(Program):
 
         return self._print_results()
 
+    def _seq_to_port(self, seq):
+        '''
+        Convert a sequence number to a port number.
+        '''
+        return seq + self.session_id
+
     def _port_to_seq(self, port):
         '''
         Convert a port number to a sequence number.
         '''
-        # TODO is this best design? bc we're assuming the agent is *adding* seq to base port
-        return port - BASE_PORT
+        return port - self.session_id
 
     def handle_done(self, done_payload):
         '''
@@ -118,7 +106,7 @@ class Traceroute(Program):
             logger.debug(f"Updated traceroute result for sequence {seq}: {result}")
 
         self.received_done = True
-        self.update_state()
+        self.check_done()
 
     def handle_reply(self, reply_payload, agent_id):
         '''
@@ -148,7 +136,7 @@ class Traceroute(Program):
         logger.debug(f"Received reply from {edge} with receive time: {receive_time}"
                      f" (IP src: {ip_src}, ICMP type: {icmp_type}, UDP sport: {src_port}, UDP dport: {dst_port})")
 
-        seq = self._port_to_seq(dst_port)
+        seq = self._port_to_seq(src_port)
         if seq < 0 or seq >= len(self.tr_results):
             logger.error(f"REPLY sequence number {seq} is out of range")
             return True
@@ -167,7 +155,7 @@ class Traceroute(Program):
         logger.debug(f"Updated traceroute result for sequence {seq}: {result}"
                      f" (Waiting TTLs: {self.waiting_tr})")
 
-        self.update_state()
+        self.check_done()
         return True
 
     def _print_results(self):
@@ -180,13 +168,13 @@ class Traceroute(Program):
             f"from {self.sender_host}, {self.tr_conf.probe_num} probes, {self.tr_conf.max_ttl} hops max"
         )
 
-        prev_gateway = None
-        prev_receiver = None
         for ttl in range(1, self.tr_conf.max_ttl + 1):
             line_parts = [str(ttl)]
             start_seq = self.tr_conf.probe_num * (ttl - 1)
             found_final_dst = False
 
+            prev_gateway = None
+            prev_receiver = None
             for seq in range(start_seq, start_seq + self.tr_conf.probe_num):
                 current = self.tr_results[seq]
 

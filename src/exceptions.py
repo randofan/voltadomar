@@ -1,5 +1,3 @@
 class PacketParseError(Exception):
-    '''
-    Exception raised when packet parsing fails due to malformed data.
-    '''
+    """Raised when packet parsing fails"""
     pass

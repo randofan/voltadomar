@@ -1,9 +1,6 @@
 from dataclasses import dataclass
 
 
-BASE_PORT = 33434
-
-
 @dataclass
 class TracerouteResult:
     '''
@@ -37,6 +34,9 @@ class TracerouteConf:
         max_ttl (int): The maximum TTL to reach.
         timeout (int): The timeout for the program.
     '''
+    source_host: str
+    destination_host: str
+    start_id: int
     probe_num: int = 3
     max_ttl: int = 30
     timeout: int = 5

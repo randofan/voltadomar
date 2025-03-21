@@ -6,10 +6,8 @@ class Program:
     Abstract class for a program that can be run by the controller.
     '''
 
-    def __init__(self, controller, session_id):
+    def __init__(self, controller):
         self.controller = controller
-        self.session_id = session_id
-        self.state = 'READY'
 
     @abstractmethod
     def update_state(self):

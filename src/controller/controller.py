@@ -1,4 +1,3 @@
-import os
 import logging
 import argparse
 from asyncio import run
@@ -9,7 +8,7 @@ from google.protobuf.any_pb2 import Any
 import anycast.anycast_pb2_grpc as anycast_pb2_grpc
 from anycast.anycast_pb2 import ReplyPayload, DonePayload, Message, ErrorPayload, RegisterPayload, Response
 
-from controller.traceroute import Traceroute
+from controller.traceroute import TracerouteConf, Traceroute, parse_traceroute_args
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -24,9 +23,12 @@ class Controller(anycast_pb2_grpc.AnycastServiceServicer):
     Controller for the Anycast service.
     '''
 
-    def __init__(self):
-        self.next_session_id = os.getpid() % 65535
-        self.programs = {}  # session_id -> program instance (Traceroute)
+    def __init__(self, start_id, end_id):
+        self.start_id = start_id
+        self.end_id = end_id
+
+        self.next_session_id = self.start_id
+        self.programs = {}  # session_id (start_id) -> program instance (Traceroute)
         self.agent_streams = {}  # agent_id -> grpc context
 
     async def ControlStream(self, request_iterator, context):
@@ -98,12 +100,23 @@ class Controller(anycast_pb2_grpc.AnycastServiceServicer):
         a new coroutine for each program that is run.
         '''
         try:
+            session_start_id = self.next_session_id
             command = request.command
-            session_id = self.next_session_id
-            self.next_session_id = (self.next_session_id + 1) % 65535
-            self.programs[session_id] = Traceroute(self, session_id)
-            logger.info(f"Starting program {session_id} with command: {command}")
-            output = await self.programs[session_id].run(command)
+            source, destination, max_hop, timeout, probe_num = parse_traceroute_args(command)
+            conf = TracerouteConf(
+                sender_host=source,
+                destination_host=destination,
+                start_id=session_start_id,
+                max_ttl=max_hop,
+                timeout=timeout,
+                probe_num=probe_num
+            )
+            session_end_id = (self.next_session_id + max_hop * probe_num) % self.end_id
+            # TODO: avoid collisions between programs
+            self.next_session_id = session_end_id + 1
+            self.programs[session_start_id] = Traceroute(self, conf)
+            logger.info(f"Starting program {session_start_id} with command: {command}")
+            output = await self.programs[session_start_id].run(command)
             return Response(code=200, output=output)
         except grpc.aio.AioRpcError as e:
             logger.info(f"User disconnected: {e}")
@@ -114,7 +127,7 @@ class Controller(anycast_pb2_grpc.AnycastServiceServicer):
             logger.error(f"Error processing user request: {e}")
             return Response(code=500, output=str(e))
         finally:
-            self.programs.pop(session_id, None)
+            self.programs.pop(session_start_id, None)
 
     async def send_job(self, agent_id, job_payload):
         '''
@@ -136,9 +149,9 @@ class Controller(anycast_pb2_grpc.AnycastServiceServicer):
             logger.error(f"Error sending job to agent {agent_id}: {e}")
 
 
-async def serve(port):
+async def serve(port, start_id, end_id):
     server = grpc.aio.server()
-    anycast_pb2_grpc.add_AnycastServiceServicer_to_server(Controller(), server)
+    anycast_pb2_grpc.add_AnycastServiceServicer_to_server(Controller(start_id=start_id, end_id=end_id), server)
     server.add_insecure_port(f'0.0.0.0:{port}')
     await server.start()
     logger.info(f"Server started on port {port}")
@@ -148,6 +161,9 @@ async def serve(port):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run the Anycast gRPC server.')
     parser.add_argument('--port', type=int, default=50051, help='Port to run the server on')
+    parser.add_argument('--range', type=str, required=True, help='Program range ex. 1000-2000')
     args = parser.parse_args()
-
-    run(serve(port=args.port))
+    start, end = map(int, args.range.split('-'))
+    if start >= end:
+        raise ValueError("Start ID must be less than end ID")
+    run(serve(port=args.port, start_id=start, end_id=end))
