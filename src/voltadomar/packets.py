@@ -1,3 +1,11 @@
+"""
+packets.py
+
+Class representations of IP, UDP, and ICMP packets.
+
+Author: David Song <davsong@cs.washington.edu>
+"""
+
 import struct
 from typing import Optional
 

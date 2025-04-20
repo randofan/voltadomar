@@ -1,3 +1,11 @@
+"""
+utils.py
+
+Utility functions used throughout the application.
+
+Author: David Song <davsong@cs.washington.edu>
+"""
+
 import socket
 
 from packets import IP, UDP
