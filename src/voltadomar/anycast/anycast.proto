@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+import "google/protobuf/any.proto";
+
+// TODO gRPC only supports int32, but the session_id and sequence numbers should both be uint16
+
+service AnycastService {
+  rpc ControlStream(stream Message) returns (stream Message);
+  rpc UserRequest(Request) returns (Response);
+}
+
+message Message {
+  string type = 1;                    // Message type: "REGISTER", "START", "STOP", "JOB", "DONE", "REPLY", "ERROR"
+  google.protobuf.Any payload = 2;
+}
+
+message RegisterPayload {
+  string agent_id = 1;
+}
+
+message ErrorPayload {
+  int32 code = 1;
+  string message = 2;
+}
+
+message CancelPayload {
+}
+
+message JobPayload {
+  int32 session_id = 1;
+  string dst_ip = 2;
+  int32 max_ttl = 3;
+  int32 probe_num = 4;
+  int32 base_port = 5;
+}
+
+message UdpAck {
+  int32 seq = 1;
+  string sent_time = 2;
+}
+
+message DonePayload {
+  int32 session_id = 1;
+  repeated UdpAck udp_acks = 2;
+}
+
+message ReplyPayload {
+  bytes raw_packet = 1;
+  string time = 2;
+}
+
+message Request {
+  string command = 1;
+}
+
+message Response {
+  int32 code = 1;
+  string output = 2;
+}
