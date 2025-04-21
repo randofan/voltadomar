@@ -1,1 +1,2 @@
-# src/agent/__init__.py
+# voltadomar/agent/__init__.py
+from voltadomar.agent.agent import Agent

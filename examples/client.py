@@ -1,5 +1,7 @@
-'''
-This is a sample client for Anycast Traceroute using gRPC.
+"""
+examples/client.py
+
+Simple example client for running anycast traceroute with Voltadomar.
 
 Usage:
     python client.py <source> <destination>
@@ -10,13 +12,14 @@ Arguments:
 
 Example:
     python client.py 1 8.8.8.8
-'''
+
+Author: David Song <davsong@cs.washington.edu>
+"""
 
 import grpc
 import argparse
 
-from anycast.anycast_pb2 import Request
-from anycast.anycast_pb2_grpc import AnycastServiceStub
+from voltadomar import Request, AnycastServiceStub
 
 
 def run(source, destination, runs):

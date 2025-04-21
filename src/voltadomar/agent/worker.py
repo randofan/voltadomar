@@ -1,3 +1,14 @@
+"""
+agent/worker.py
+
+WorkerManager class for managing a pool of workers. Each worker
+is a asynchronous task that processes jobs from an input queue and
+puts results into an output queue. The WorkerManager handles
+starting, stopping, and cancelling the workers.
+
+Author: David Song <davsong@cs.washington.edu>
+"""
+
 import logging
 import asyncio
 from typing import Any, Awaitable, Callable, List, Optional
