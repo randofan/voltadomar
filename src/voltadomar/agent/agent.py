@@ -18,21 +18,32 @@ from typing import Tuple, Dict, AsyncIterator, Any as TypingAny
 import grpc.aio
 from google.protobuf.any_pb2 import Any
 
-from anycast.anycast_pb2 import (Message, JobPayload, ErrorPayload,
-                                 RegisterPayload, ReplyPayload, UdpAck,
-                                 DonePayload)
-from anycast.anycast_pb2_grpc import AnycastServiceStub
+from voltadomar.anycast.anycast_pb2 import (
+    Message,
+    JobPayload,
+    ErrorPayload,
+    RegisterPayload,
+    ReplyPayload,
+    UdpAck,
+    DonePayload,
+)
+from voltadomar.anycast.anycast_pb2_grpc import AnycastServiceStub
 
 from voltadomar.agent.worker import WorkerManager
 
-from utils import build_udp_probe
-from constants import (MSG_TYPE_JOB, MSG_TYPE_REPLY, MSG_TYPE_DONE,
-                       MSG_TYPE_ERROR, MSG_TYPE_REGISTER)
+from voltadomar.utils import build_udp_probe
+from voltadomar.constants import (
+    MSG_TYPE_JOB,
+    MSG_TYPE_REPLY,
+    MSG_TYPE_DONE,
+    MSG_TYPE_ERROR,
+    MSG_TYPE_REGISTER,
+)
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 
@@ -61,17 +72,25 @@ class Agent:
         # Create asynchronous worker pools to handle incoming jobs and sniff packets.
         # Each worker is a task that processes jobs from a queue. By using a pool, it
         # allows for controls over the number of concurrent tasks.
-        self.listener_workers = WorkerManager(worker_num=3, worker_func=self.listener_worker)
-        self.sender_workers = WorkerManager(worker_num=3, worker_func=self.sender_worker)
+        self.listener_workers = WorkerManager(
+            worker_num=3, job_processor=self.listener_worker
+        )
+        self.sender_workers = WorkerManager(
+            worker_num=3, job_processor=self.sender_worker
+        )
 
         self.sockets: Dict[str, socket.socket] = {}
-        self.sockets[SOCKET_UDP] = self._create_raw_socket(socket.IPPROTO_RAW, ip_hdrincl=True),
+        self.sockets[SOCKET_UDP] = self._create_raw_socket(
+            socket.IPPROTO_RAW, ip_hdrincl=True
+        )
         self.sockets[SOCKET_ICMP] = self._create_raw_socket(socket.IPPROTO_ICMP)
 
         # self.sockets[SOCKET_UDP].bind(("10.10.10.10", 0))
         # self.sockets[SOCKET_ICMP].bind(("10.10.10.10", 0))
 
-    def _create_raw_socket(self, protocol: int, ip_hdrincl: bool = False) -> socket.socket:
+    def _create_raw_socket(
+        self, protocol: int, ip_hdrincl: bool = False
+    ) -> socket.socket:
         """Creates and configures a raw socket."""
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, protocol)
@@ -87,7 +106,9 @@ class Agent:
             logger.error(f"Failed to create raw socket protocol {protocol}:\n{e}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error creating raw socket protocol {protocol}:\n{e}")
+            logger.error(
+                f"Unexpected error creating raw socket protocol {protocol}:\n{e}"
+            )
             raise
 
     async def listener_worker(self, sniffed_packet: Tuple[bytes, str]) -> Message:
@@ -119,7 +140,9 @@ class Agent:
         loop = asyncio.get_running_loop()
 
         if isinstance(payload, ErrorPayload):
-            logger.warning(f"Sender worker received an error payload: {payload.message}")
+            logger.warning(
+                f"Sender worker received an error payload: {payload.message}"
+            )
             packed_payload = Any()
             packed_payload.Pack(payload)
             return Message(type=MSG_TYPE_ERROR, payload=packed_payload)
@@ -136,7 +159,7 @@ class Agent:
         max_ttl = payload.max_ttl
         base_port = payload.base_port
         probe_num = payload.probe_num
-        hmac = "hmac"
+        hmac = 33434  # TODO: replace with actual HMAC
 
         logger.info(f"Starting job {session_id}: Probing {dst_ip} up to TTL {max_ttl}")
         udp_acks = []
@@ -151,7 +174,9 @@ class Agent:
                         source_port=seq,
                         dst_port=hmac,
                     )
-                    await loop.sock_sendto(self.sockets[SOCKET_UDP], packet, (dst_ip, 0))
+                    await loop.sock_sendto(
+                        self.sockets[SOCKET_UDP], packet, (dst_ip, 0)
+                    )
                     exact_time = time.time_ns() / 1e9
                     sent_time = datetime.fromtimestamp(exact_time).isoformat()
                     udp_acks.append(UdpAck(seq=seq, sent_time=sent_time))
@@ -161,7 +186,8 @@ class Agent:
             done_payload = Any()
             done_payload.Pack(DonePayload(session_id=session_id, udp_acks=udp_acks))
             return Message(type=MSG_TYPE_DONE, payload=done_payload)
-
+        except asyncio.CancelledError:
+            raise
         except socket.error as e:
             err_msg = f"Socket error during sending for job {session_id}: {e}"
             logger.error(err_msg)
@@ -194,21 +220,20 @@ class Agent:
                         else:
                             logger.error("Failed to unpack JobPayload")
                     else:
-                        logger.warning(f"Received unknown message type from controller: {message.type}")
-
-                except KeyboardInterrupt:
-                    logger.info("Keyboard interrupt received in handle_controller.")
-                    break
+                        logger.warning(
+                            f"Received unknown message type from controller: {message.type}"
+                        )
+                except asyncio.CancelledError:
+                    raise
                 except Exception as e:
                     logger.exception(f"Error processing message from controller: {e}")
-                    error_payload = ErrorPayload(code=500, message=f"Error processing controller message: {e}")
+                    error_payload = ErrorPayload(
+                        code=500, message=f"Error processing controller message: {e}"
+                    )
                     await self.sender_workers.add_input(error_payload)
-        except grpc.aio.AioRpcError as e:
-            logger.error(f"gRPC error receiving from controller: {e.details()} (code: {e.code()})")
-        except Exception as e:
-            logger.exception(f"Unexpected error in handle_controller: {e}")
-        finally:
-            logger.info("Controller handler finished.")
+        except grpc.aio.AioRpcError:
+            logger.error("Controller disconnected.")
+            raise
 
     async def handle_sniffer(self) -> None:
         """
@@ -225,14 +250,8 @@ class Agent:
                 recv_time = datetime.fromtimestamp(exact_time).isoformat()
                 logger.debug(f"Received ICMP packet from {addr[0]} size {len(packet)}")
                 await self.listener_workers.add_input((packet, recv_time))
-            except KeyboardInterrupt:
-                logger.info("ICMP sniffer interrupted by user.")
-                break
-            except BlockingIOError:
-                await asyncio.sleep(0.01)
-            except socket.error as e:
-                logger.error(f"Socket error receiving ICMP packet: {e}")
-                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 logger.exception(f"Unexpected error in handle_sniffer: {e}")
                 await asyncio.sleep(1)
@@ -254,51 +273,86 @@ class Agent:
         # Continuously poll from the sender and listener tasks. Once one of them
         # returns a message, yield it to the controller, and re-create the task to
         # keep polling new messages.
-        while pending:
-            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-            for task in done:
-                try:
-                    message: Message = task.result()
-                    yield message
-                    logger.debug(f"Yielded message of type {message.type} to controller")
+        try:
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending, return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in done:
+                    try:
+                        message: Message = task.result()
+                        yield message
+                        logger.debug(
+                            f"Yielded message of type {message.type} to controller"
+                        )
 
-                    if task == sender_task:
-                        sender_task = asyncio.create_task(self.sender_workers.get_output())
-                        pending.add(sender_task)
-                    elif task == listener_task:
-                        listener_task = asyncio.create_task(self.listener_workers.get_output())
-                        pending.add(listener_task)
+                        if task == sender_task:
+                            sender_task = asyncio.create_task(
+                                self.sender_workers.get_output()
+                            )
+                            pending.add(sender_task)
+                        elif task == listener_task:
+                            listener_task = asyncio.create_task(
+                                self.listener_workers.get_output()
+                            )
+                            pending.add(listener_task)
 
-                except Exception as e:
-                    logger.exception(f"Error retrieving output from worker task: {e}")
-                    error_payload = Any()
-                    error_payload.Pack(ErrorPayload(code=500, message=f"Internal agent error processing worker output: {e}"))
-                    yield Message(type=MSG_TYPE_ERROR, payload=error_payload)
-        logger.info("Output handler finished.")
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        logger.exception(f"Error retrieving output from worker task: {e}")
+                        error_payload = Any()
+                        error_payload.Pack(
+                            ErrorPayload(
+                                code=500,
+                                message=f"Internal agent error processing worker output: {e}",
+                            )
+                        )
+                        yield Message(type=MSG_TYPE_ERROR, payload=error_payload)
+        except asyncio.CancelledError:
+            logger.info("Output handler cancelled.")
+        except Exception:
+            logger.exception("Unexpected error in output handler.")
+        finally:
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
 
     async def run(self) -> None:
-        """
-        Starts the agent's main processes: worker managers, gRPC connection, and sniffer.
-        """
+        """Starts the agent's main processes"""
         logger.info(f"Starting agent {self.agent_id}...")
+
         self.listener_workers.start()
         self.sender_workers.start()
         logger.info("Worker managers started.")
 
-        try:
-            async with grpc.aio.insecure_channel(self.controller_address) as channel:
-                logger.info(f"Attempting to connect to controller at {self.controller_address}...")
-                stub = AnycastServiceStub(channel)
-                # The ControlStream handles both sending (via handle_output) and receiving (via handle_controller)
-                # handle_output is passed as an async iterator to send messages upstream
-                # handle_controller processes messages coming downstream within the stream context
-                context = stub.ControlStream(self.handle_output())
-                logger.info("gRPC stream established with controller.")
-                await asyncio.gather(
-                    self.handle_controller(context),
-                    self.handle_sniffer()
-                )
-        except grpc.aio.AioRpcError as e:
-            logger.error(f"gRPC connection error: {e.details()} (code: {e.code()}). Retrying in 5 seconds...")
-        except Exception as e:
-            logger.exception(f"Unexpected error in main run loop: {e}. Retrying in 5 seconds...")
+        async with grpc.aio.insecure_channel(self.controller_address) as channel:
+            logger.info(f"Connecting to controller at {self.controller_address}...")
+            stub = AnycastServiceStub(channel)
+            context = stub.ControlStream(self.handle_output())
+            logger.info("gRPC stream established")
+
+            tasks = [
+                asyncio.create_task(self.handle_controller(context)),
+                asyncio.create_task(self.handle_sniffer()),
+            ]
+            try:
+                await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+            except asyncio.CancelledError:
+                logger.info("Agent run loop cancelled.")
+            except KeyboardInterrupt:
+                logger.info("Agent run loop interrupted by user.")
+                raise
+            except Exception as e:
+                logger.error(f"Unexpected error in agent run loop: {e}")
+            finally:
+                logger.info("Shutting down agent.")
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                await self.listener_workers.cancel()
+                await self.sender_workers.cancel()
+                logger.debug("All tasks cancelled.")
+                for sock in self.sockets.values():
+                    sock.close()
+                logger.debug("All sockets closed.")

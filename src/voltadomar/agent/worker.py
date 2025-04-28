@@ -120,7 +120,7 @@ class WorkerManager:
             logger.warning("No worker tasks to cancel.")
             return
 
-        logger.info(f"Cancelling {len(self._tasks)} worker tasks...")
+        logger.debug(f"Cancelling {len(self._tasks)} worker tasks...")
         for task in self._tasks:
             if not task.done():
                 task.cancel()
@@ -135,4 +135,4 @@ class WorkerManager:
         while not self.output_queue.empty():
             self.output_queue.get_nowait()
             self.output_queue.task_done()
-        logger.info("Input and output queues cleared after cancellation.")
+        logger.debug("Input and output queues cleared after cancellation.")

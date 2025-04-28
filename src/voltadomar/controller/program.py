@@ -9,8 +9,7 @@ Author: David Song <davsong@cs.washington.edu>
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from voltadomar.anycast import DonePayload, ReplyPayload
-from voltadomar.controller import Controller
+from voltadomar.anycast.anycast_pb2 import DonePayload, ReplyPayload
 
 
 @dataclass
@@ -26,7 +25,7 @@ class Program(ABC):
     Abstract class for a program that can be run by the controller.
     """
 
-    def __init__(self, controller: Controller, conf: ProgramConf) -> None:
+    def __init__(self, controller, conf: ProgramConf) -> None:
         self.controller = controller
         self.conf = conf
 

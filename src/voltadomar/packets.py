@@ -9,7 +9,7 @@ Author: David Song <davsong@cs.washington.edu>
 import struct
 from typing import Optional
 
-from exceptions import PacketParseError
+from voltadomar.exceptions import PacketParseError
 
 
 class IP:
@@ -239,7 +239,7 @@ class ICMP:
             self.code = header[1]
             self.checksum = header[2]
 
-            if self.type == 11:  # Time Exceeded
+            if self.type in (3, 11):  # Destination Unreachable or Time Exceeded
                 # Skip 4 bytes of ICMP header and 4 bytes of unused data
                 self.original_data = raw[8:]
 
@@ -252,13 +252,6 @@ class ICMP:
 
         except struct.error as e:
             raise PacketParseError("Malformed ICMP packet") from e
-
-    def get_inner_icmp_data(self) -> Optional[bytes]:
-        """Returns the data portion of the inner ICMP packet if this is a Time Exceeded message."""
-        if self.type == 11 and self.inner_data and len(self.inner_data) >= 8:
-            # Skip the inner ICMP header (4 bytes) to get to the actual data
-            return self.inner_data[4:]
-        return None
 
     def _calculate_checksum(self, data: bytes) -> int:
         """Calculates ICMP checksum."""

@@ -11,30 +11,32 @@ import argparse
 import logging
 from datetime import datetime
 from dataclasses import dataclass
-from anycast.anycast_pb2 import JobPayload
+from voltadomar.anycast.anycast_pb2 import JobPayload
 
-from packets import IP, ICMP, UDP
-from utils import resolve_ip, resolve_hostname
+from voltadomar.packets import IP, ICMP, UDP
+from voltadomar.utils import resolve_ip, resolve_hostname
 from voltadomar.controller.program import Program, ProgramConf
 
 logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 
 def parse_traceroute_args(command: str) -> tuple:
     """
     Parse the arguments for the traceroute program string.
-    Usage: volta <source> <destination> [-m <max hops>] [-t <timeout>] [-n <probe num>]
+    Usage: volta <source> <destination> [-m <max-ttls>] [-w <waittime>] [-q <nqueries>]
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=str)
     parser.add_argument("destination", type=str)
-    parser.add_argument("-m", "--max-hops", type=int, default=20)
-    parser.add_argument("-t", "--timeout", type=int, default=10)
-    parser.add_argument("-n", "--probe-num", type=int, default=3)
+    parser.add_argument("-m", "--max-ttls", type=int, default=20)
+    parser.add_argument("-w", "--waittime", type=int, default=5)
+    parser.add_argument("-q", "--nqueries", type=int, default=3)
+    parser.add_argument("-t", "--tos", type=int, default=1)
 
     args = parser.parse_args(command.split()[1:])  # exclude "volta" prefix
-    return (args.source, args.destination, args.max_hops,
-            args.timeout, args.probe_num)
+    return (args.source, args.destination, args.max_ttls,
+            args.waittime, args.tos, args.nqueries)
 
 
 @dataclass
@@ -73,15 +75,35 @@ class TracerouteConf(ProgramConf):
     source_host: str
     destination_host: str
     start_id: int
-    probe_num: int = 3
-    max_ttl: int = 30
-    timeout: int = 5
+    probe_num: int
+    max_ttl: int
+    timeout: int
+    tos: int
 
 
 class Traceroute(Program):
     def __init__(self, controller, conf):
         super().__init__(controller, conf)
         self._finished = asyncio.Event()
+
+        self.received_done = False
+        self.waiting_tr = self.conf.probe_num * self.conf.max_ttl
+        self.tr_results = [
+            TracerouteResult(
+                seq=i,
+                t1=None,
+                t2=None,
+                receiver=None,
+                gateway=None,
+                timeout=True,
+                final_dst=False
+            ) for i in range(self.waiting_tr)
+        ]
+
+        self.session_id = self.conf.start_id
+        self.source_host = self.conf.source_host
+        self.destination_host = self.conf.destination_host
+        self.destination_ip = resolve_ip(self.destination_host)
 
     def _check_done(self):
         """
@@ -98,35 +120,18 @@ class Traceroute(Program):
         """
         Run the traceroute program.
         """
-        self.received_done = False
-        self.waiting_tr = self.conf.probe_num * self.conf.max_ttl
-        self.tr_results = [
-            TracerouteResult(
-                seq=i,
-                t1=None,
-                t2=None,
-                receiver=None,
-                gateway=None,
-                timeout=True,
-                final_dst=False
-            ) for i in range(self.waiting_tr)
-        ]
-
-        self.session_id = self.conf.start_id
-        self.sender_host = self.conf.sender_host
-        self.destination_host = self.conf.destination_host
-        self.destination_ip = resolve_ip(self.destination_host)
-
         logger.info(
             f"Traceroute to {self.destination_host} ({self.destination_ip}) "
-            f"from {self.sender_host}, {self.conf.probe_num} probes, "
+            f"from {self.source_host}, {self.conf.probe_num} probes, "
             f"{self.conf.max_ttl} hops max, timeout {self.conf.timeout} seconds"
         )
 
+        # TODO add ECN (tos) to the IP header
+        # TODO add ICMP probe option
         job_payload = JobPayload(session_id=self.session_id, dst_ip=self.destination_ip,
                                  max_ttl=self.conf.max_ttl, probe_num=self.conf.probe_num,
                                  base_port=self._seq_to_port(0))
-        await self.controller.send_job(self.sender_host, job_payload)
+        await self.controller.send_job(self.source_host, job_payload)
         logger.debug("Finished sending JOB")
 
         try:
@@ -194,7 +199,7 @@ class Traceroute(Program):
         src_port = udp.sport
         dst_port = udp.dport
 
-        if src_port != self.session_id:
+        if src_port < self.session_id or src_port >= self.session_id + self.conf.max_ttl * self.conf.probe_num:
             logger.debug(f"REPLY source port {src_port} does not match session ID {self.session_id}")
             return False
 
@@ -230,7 +235,7 @@ class Traceroute(Program):
         output = []
         output.append(
             f"Traceroute to {self.destination_host} ({self.destination_ip}) "
-            f"from {self.sender_host}, {self.conf.probe_num} probes, {self.conf.max_ttl} hops max"
+            f"from {self.source_host}, {self.conf.probe_num} probes, {self.conf.max_ttl} hops max"
         )
 
         for ttl in range(1, self.conf.max_ttl + 1):

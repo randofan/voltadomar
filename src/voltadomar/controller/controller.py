@@ -7,6 +7,7 @@ and program execution. Handles coordination between users and agents.
 Author: David Song <davsong@cs.washington.edu>
 """
 
+import asyncio
 import logging
 from typing import Dict, Any as AnyType, Optional, Set
 
@@ -32,7 +33,7 @@ from voltadomar.controller.traceroute import (
 )
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler()],
 )
@@ -205,21 +206,22 @@ class Controller(anycast_pb2_grpc.AnycastServiceServicer):
         try:
             command = request.command
             args = parse_traceroute_args(command)
-            source, destination, max_hop, timeout, probe_num = args
-            if max_hop * probe_num > self.block_size:
+            source, destination, max_ttls, waittime, tos, nqueries = args
+            if max_ttls * nqueries > self.block_size:
                 return Response(
                     code=400,
-                    output=f"Max hops * probe num ({max_hop} * {probe_num}) exceeds block size ({self.block_size})",
+                    output=f"Max hops * probe num ({max_ttls} * {nqueries}) exceeds block size ({self.block_size})",
                 )
             session_start_id = self.allocate_session_id()
 
             conf = TracerouteConf(
-                sender_host=source,
+                source_host=source,
                 destination_host=destination,
                 start_id=session_start_id,
-                max_ttl=max_hop,
-                timeout=timeout,
-                probe_num=probe_num,
+                max_ttl=max_ttls,
+                timeout=waittime,
+                probe_num=nqueries,
+                tos=tos,
             )
 
             self.programs[session_start_id] = Traceroute(self, conf)
@@ -276,4 +278,12 @@ class Controller(anycast_pb2_grpc.AnycastServiceServicer):
         server.add_insecure_port(f"0.0.0.0:{self.port}")
         await server.start()
         logger.info(f"Server started on port {self.port}")
-        await server.wait_for_termination()
+
+        try:
+            await server.wait_for_termination()
+        except asyncio.CancelledError:
+            logger.info("Controller task was cancelled.")
+            raise
+        finally:
+            await server.stop(0)
+            logger.info("Controller shutdown complete.")
