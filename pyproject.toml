@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=64.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voltadomar"
+version = "0.1.0"
+description = "Distributed anycast network measurement toolkit"
+readme = "README.md"
+authors = [
+    {name = "David Song", email = "davsong@cs.washington.edu"}
+]
+# Updated license format to use SPDX expression
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "grpcio",
+    "grpcio-tools",
+    "protobuf",
+]
+
+[project.urls]
+Repository = "https://bitbucket.org/uwpatio/voltadomar"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["voltadomar"]
