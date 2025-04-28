@@ -13,11 +13,11 @@ Usage:
 
 Arguments:
     --port <port>            Port to run the server on (default: 50051)
-    --range <start-end>     Controller session ID allocation range (e.g., 1000-2000)
-    --block <block_size>   Session ID block size per program
+    --range <start-end>      Controller session ID allocation range (e.g., 1000-2000)
+    --block <block_size>     Session ID block size per program
 
 Example:
-    python controller.py --port 50051 --range 1000-2000 --block 100
+    python controller.py --port 50051 --range 10000-20000 --block 100
 
 Author: David Song <davsong@cs.washington.edu>
 """
@@ -73,8 +73,6 @@ def main():
         asyncio.run(controller.run())
     except KeyboardInterrupt:
         print("Agent stopped by user.")
-    except Exception as e:
-        print(f"Agent failed to run: {e}")
 
 
 if __name__ == "__main__":

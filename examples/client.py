@@ -7,11 +7,11 @@ Usage:
     python client.py <source> <destination>
 
 Arguments:
-    source (str): The source anycase node to send the traceroute from.
+    source (str): The source anycast node to send the traceroute from.
     destination (str): The destination address to send the traceroute to.
 
 Example:
-    python client.py 1 8.8.8.8
+    python client.py agent1 8.8.8.8
 
 Author: David Song <davsong@cs.washington.edu>
 """

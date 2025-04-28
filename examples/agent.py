@@ -23,6 +23,8 @@ import socket
 
 from voltadomar import Agent
 
+# TODO move arguments to a config file
+
 
 def main():
     """Parses arguments and runs the agent."""
@@ -44,8 +46,6 @@ def main():
         asyncio.run(agent.run())
     except KeyboardInterrupt:
         print("Agent stopped by user.")
-    except Exception as e:
-        print(f"Agent failed to run: {e}")
 
 
 if __name__ == "__main__":
