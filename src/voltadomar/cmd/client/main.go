@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
-	pb "github.com/randofan/voltadomar-cli/proto/anycast"
+	pb "github.com/randofan/voltadomar/proto/anycast"
 )
 
 // Config holds the configuration for the CLI
