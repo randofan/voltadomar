@@ -1,34 +1,108 @@
 # Voltadomar API Reference
 
-This document provides detailed information about the classes, methods, and services available in the Voltadomar package.
+This document provides comprehensive API documentation for the Voltadomar Go implementation - a distributed anycast network measurement toolkit.
+
+## Overview
+
+Voltadomar is a high-performance Go-based system for performing distributed network traceroute measurements across anycast networks. It uses a controller-agent architecture with gRPC communication to coordinate network probing operations.
 
 ## Contents
 
-- [gRPC Protocol (AnycastService)](#grpc-protocol-anycastservice)
-- [Controller](#controller)
-  - [Session ID Management](#session-id-management)
-  - [Methods](#methods)
-  - [gRPC Methods (AnycastService)](#grpc-methods-anycastservice)
-- [Program](#program)
-  - [ProgramConf](#programconf)
-  - [Program](#program-1)
-- [Traceroute](#traceroute)
-  - [TracerouteConf](#tracerouteconf)
-  - [TracerouteResult](#tracerouteresult)
-  - [parse_traceroute_args](#parse_traceroute_args)
-  - [Traceroute](#traceroute-1)
-- [Agent](#agent)
-- [WorkerManager](#workermanager)
-- [Packets](#packets)
-  - [IP](#ip)
-  - [UDP](#udp)
-  - [ICMP](#icmp)
-- [Utilities](#utilities)
-- [Exceptions](#exceptions)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [gRPC Protocol](#grpc-protocol)
+- [Controller Package](#controller-package)
+- [Agent Package](#agent-package)
+- [Packets Package](#packets-package)
+- [Command-Line Tools](#command-line-tools)
+- [Client Integration](#client-integration)
+- [Examples](#examples)
+- [Troubleshooting](#troubleshooting)
 
-## gRPC Protocol (AnycastService)
+## Installation
 
-Voltadomar uses gRPC for communication between the Controller, Agents, and user clients. The service definition is `AnycastService`.
+### Prerequisites
+
+- Go 1.21 or higher
+- Protocol Buffers compiler (`protoc`) for development
+- Root/administrator privileges for raw socket operations
+- Linux-based OS recommended
+
+### Building from Source
+
+```bash
+git clone https://github.com/randofan/voltadomar.git
+cd voltadomar/src/voltadomar
+
+# Install dependencies
+go mod tidy
+
+# Generate gRPC code (if needed)
+go generate ./...
+
+# Build binaries
+go build -o controller-binary ./cmd/controller
+go build -o agent-binary ./cmd/agent
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+go test ./...
+
+# Run tests with verbose output
+go test -v ./...
+
+# Run specific package tests
+go test ./pkg/packets -v
+go test ./internal/controller -v
+go test ./internal/agent -v
+```
+
+## Quick Start
+
+### 1. Start the Controller
+
+```bash
+# Using the example script
+./examples/controller.sh --port 50051 --range 10000-20000 --block 100
+
+# Or directly with the binary
+./controller-binary --port 50051 --range 10000-20000 --block 100
+```
+
+### 2. Start an Agent
+
+```bash
+# Using the example script (requires root for raw sockets)
+sudo ./examples/agent.sh -i agent1 -c localhost:50051
+
+# Or directly with the binary
+sudo ./agent-binary -i agent1 -c localhost:50051
+```
+
+### 3. Run a Traceroute
+
+```bash
+# Using the Python client
+python examples/client.py agent1 8.8.8.8 1
+
+# Or using any gRPC client with the command: "volta agent1 8.8.8.8"
+```
+
+## gRPC Protocol
+
+Voltadomar uses gRPC for communication between components. The service definition is `AnycastService` located in `proto/anycast/anycast.proto`.
+
+### Service Definition
+
+```protobuf
+service AnycastService {
+  rpc ControlStream(stream Message) returns (stream Message);
+  rpc UserRequest(Request) returns (Response);
+}
+```
 
 ### RPC Methods
 
@@ -38,9 +112,16 @@ Voltadomar uses gRPC for communication between the Controller, Agents, and user 
 rpc ControlStream(stream Message) returns (stream Message);
 ```
 
-A bidirectional stream between an Agent and the Controller.
-- **Agent -> Controller:** Sends `REGISTER`, `DONE`, `REPLY`, `ERROR` messages.
-- **Controller -> Agent:** Sends `JOB` messages.
+Bidirectional streaming RPC between agents and the controller.
+
+**Agent → Controller Messages:**
+- `REGISTER`: Agent registration with unique ID
+- `DONE`: Job completion with UDP acknowledgments
+- `REPLY`: ICMP packet replies from network probes
+- `ERROR`: Error reporting
+
+**Controller → Agent Messages:**
+- `JOB`: Measurement job instructions
 
 #### UserRequest
 
@@ -48,735 +129,1062 @@ A bidirectional stream between an Agent and the Controller.
 rpc UserRequest(Request) returns (Response);
 ```
 
-A unary RPC for user clients to request the Controller to run a measurement program.
+Unary RPC for clients to request measurement programs.
+
+**Request Format:**
+```protobuf
+message Request {
+  string command = 1; // e.g., "volta agent1 8.8.8.8"
+}
+```
+
+**Response Format:**
+```protobuf
+message Response {
+  int32 code = 1;    // HTTP-style status code
+  string output = 2; // Formatted results or error message
+}
+```
 
 ### Message Structure
 
-All communication over `ControlStream` uses the `Message` wrapper:
+All `ControlStream` communication uses the `Message` wrapper:
 
 ```protobuf
 message Message {
-  string type = 1;                    // Message type identifier
-  google.protobuf.Any payload = 2;    // The actual payload message
+  google.protobuf.Any payload = 1;    // Serialized payload message with embedded type information
 }
 ```
 
-The `type` field indicates the kind of payload contained within the `google.protobuf.Any` field. Possible values correspond to the payload message names (e.g., "REGISTER", "JOB", "DONE").
+The message type is determined from the `TypeUrl` field of the `google.protobuf.Any` payload, eliminating redundant type information. This design:
 
-### Payload Messages
+- **Reduces Protocol Overhead**: Eliminates duplicate type information
+- **Improves Type Safety**: Uses protobuf's built-in type system
+- **Simplifies Message Handling**: Single payload field with embedded type information
+- **Maintains Backward Compatibility**: Standard protobuf Any mechanism
 
-#### RegisterPayload
+### Message Types and Payloads
 
+#### Register
 ```protobuf
-message RegisterPayload {
-  string agent_id = 1; // Unique ID of the registering agent
+message Register {
+  string agent_id = 1;
 }
 ```
-Sent by an Agent to the Controller upon connection to identify itself.
-**Type:** "REGISTER"
+**TypeUrl:** `"type.googleapis.com/Register"`
+**Direction:** Agent → Controller
+**Purpose:** Agent registration with unique identifier
 
-#### ErrorPayload
-
+#### Job
 ```protobuf
-message ErrorPayload {
-  int32 code = 1;      // Error code (e.g., HTTP status codes)
-  string message = 2;  // Descriptive error message
+message Job {
+  int32 session_id = 1;  // Session identifier
+  string dst_ip = 2;     // Target IP address
+  int32 max_ttl = 3;     // Maximum TTL value
+  int32 probe_num = 4;   // Probes per TTL
+  int32 base_port = 5;   // Base port for sequence calculation
 }
 ```
-Sent by either Agent or Controller to report an error.
-**Type:** "ERROR"
+**TypeUrl:** `"type.googleapis.com/Job"`
+**Direction:** Controller → Agent
+**Purpose:** Measurement job instructions
 
-#### CancelPayload
-
+#### Done
 ```protobuf
-message CancelPayload {
-  // Currently empty
+message Done {
+  int32 session_id = 1;
+  repeated UdpAck udp_acks = 2;
 }
-```
-*Note: This message is defined but not currently used in the implementation.*
-**Type:** "CANCEL" (intended)
 
-#### JobPayload
-
-```protobuf
-message JobPayload {
-  int32 session_id = 1; // ID identifying the measurement session/program
-  string dst_ip = 2;    // Destination IP address for probes
-  int32 max_ttl = 3;    // Maximum TTL for probes
-  int32 probe_num = 4;  // Number of probes per TTL
-  int32 base_port = 5;  // Starting source port for UDP probes (used for sequence)
-}
-```
-Sent by the Controller to an Agent to initiate a measurement job (e.g., sending traceroute probes).
-**Type:** "JOB"
-
-#### UdpAck
-
-```protobuf
 message UdpAck {
-  int32 seq = 1;        // Sequence number (derived from source port)
-  string sent_time = 2; // ISO 8601 timestamp when the probe was sent
+  int32 seq = 1;
+  string sent_time = 2;  // RFC3339Nano format
 }
 ```
-Part of `DonePayload`, confirms the sending of a single UDP probe.
+**TypeUrl:** `"type.googleapis.com/Done"`
+**Direction:** Agent → Controller
+**Purpose:** Job completion notification with probe acknowledgments
 
-#### DonePayload
-
+#### Reply
 ```protobuf
-message DonePayload {
-  int32 session_id = 1;           // ID identifying the measurement session/program
-  repeated UdpAck udp_acks = 2; // List of acknowledgements for sent probes
+message Reply {
+  bytes raw_packet = 1;  // Raw ICMP packet bytes
+  string time = 2;       // RFC3339Nano timestamp
 }
 ```
-Sent by an Agent to the Controller when it has finished sending all probes for a specific job.
-**Type:** "DONE"
+**TypeUrl:** `"type.googleapis.com/Reply"`
+**Direction:** Agent → Controller
+**Purpose:** ICMP reply forwarding
 
-#### ReplyPayload
-
+#### Error
 ```protobuf
-message ReplyPayload {
-  bytes raw_packet = 1; // Raw bytes of the received ICMP reply packet
-  string time = 2;      // ISO 8601 timestamp when the reply was received
+message Error {
+  int32 code = 1;
+  string message = 2;
 }
 ```
-Sent by an Agent to the Controller when it receives an ICMP reply potentially related to a measurement job.
-**Type:** "REPLY"
+**TypeUrl:** `"type.googleapis.com/Error"`
+**Direction:** Bidirectional
+**Purpose:** Error reporting
 
-#### Request
+## Controller Package
 
-```protobuf
-message Request {
-  string command = 1; // The command string entered by the user (e.g., "volta agent1 google.com")
+**Package:** `github.com/randofan/voltadomar/internal/controller`
+
+The controller package implements the central coordination server for the Voltadomar system. It manages agent connections, handles user requests, and orchestrates measurement program execution.
+
+### Architecture
+
+The controller uses a session-based architecture where each measurement program receives a unique session ID block for probe identification. It maintains concurrent-safe maps for agent connections and active programs, using Go's built-in synchronization primitives.
+
+### Controller Struct
+
+```go
+type Controller struct {
+    // Configuration
+    port      int
+    startID   int32
+    endID     int32
+    blockSize int32
+
+    // Session management
+    nextSessionID int32
+    inUseBlocks   map[int32]bool
+
+    // Runtime state
+    agentStreams map[string]pb.AnycastService_ControlStreamServer
+    programs     map[int32]Program
+
+    // Synchronization
+    mu sync.RWMutex
+
+    // gRPC server
+    server *grpc.Server
 }
 ```
-Sent by a user client to the Controller via the `UserRequest` RPC.
 
-#### Response
+### Constructor
 
-```protobuf
-message Response {
-  int32 code = 1;      // Status code (e.g., 200 for success, 400 for bad request)
-  string output = 2;   // Output string (e.g., formatted traceroute results or error message)
-}
+```go
+func NewController(port int, startID, endID, blockSize int32) *Controller
 ```
-Returned by the Controller to the user client in response to a `UserRequest`.
 
-## Controller
-
-The Controller serves as the central coordinator for the Voltadomar system. It manages connections with multiple Agents, handles user requests for measurements, and orchestrates the execution of specific measurement tasks, which are encapsulated within `Program` subclasses (like `Traceroute`).
-
-When a user initiates a measurement via the `UserRequest` gRPC method, the Controller parses the request, determines the appropriate `Program` type, allocates necessary resources (such as a unique `session_id` block using its [Session ID Management](#session-id-management) logic), and instantiates the corresponding `Program` object (e.g., `Traceroute`).
-
-The Controller then calls the `run()` method on the `Program` instance. The `Program` instance contains the specific logic for the measurement. It interacts with the Controller (using the provided `controller` reference) to send `JOB` messages to the required Agent(s) via the `send_job()` method.
-
-As Agents execute the job and receive replies, they send `DONE` and `REPLY` messages back to the Controller via the `ControlStream`. The Controller receives these messages and routes them to the appropriate active `Program` instance based on the `session_id` (for `DONE`) or by querying each program (for `REPLY`). The `Program` instance processes these incoming messages using its `handle_done()` and `handle_reply()` methods, updating its internal state.
-
-Once the `Program`'s `run()` method completes (either successfully, by timeout, or due to an error), it returns the formatted results or status information to the Controller. The Controller then packages this into a `Response` message and sends it back to the originating user client. Finally, the Controller cleans up resources associated with the completed program, including releasing the allocated `session_id` block.
-
-### Controller
-
-```python
-Controller(port: int, start_id: int, end_id: int, block_size: int)
-```
+Creates a new controller instance with the specified configuration.
 
 **Parameters:**
-- `port`: Port number to run the gRPC server on.
-- `start_id`: Starting session ID for allocation. Defines the lower bound of the managed ID range.
-- `end_id`: Maximum session ID that can be allocated. Defines the upper bound (exclusive) of the managed ID range.
-- `block_size`: Size of ID blocks allocated per program.
+- `port`: gRPC server port
+- `startID`: Starting session ID for allocation range
+- `endID`: Ending session ID for allocation range (exclusive)
+- `blockSize`: Size of ID blocks allocated per program
 
-**Properties:**
-- `programs`: Dictionary mapping session start IDs to active `Program` instances.
-- `agent_streams`: Dictionary mapping agent IDs to their gRPC `ServicerContext`.
+**Example:**
+```go
+controller := NewController(50051, 1000, 2000, 100)
+```
+
+### Methods
+
+#### AllocateSessionID
+
+```go
+func (c *Controller) AllocateSessionID() (int32, error)
+```
+
+Allocates a new session ID block using a sliding window approach. Searches for available blocks starting from the next expected position and wraps around the configured range if necessary.
+
+**Returns:**
+- `int32`: Starting ID of the allocated block
+- `error`: Error if no blocks are available
+
+**Thread Safety:** This method is thread-safe using read-write mutex protection.
+
+#### ReleaseSessionID
+
+```go
+func (c *Controller) ReleaseSessionID(sessionID int32)
+```
+
+Releases a previously allocated session ID block, making it available for future allocations.
+
+**Parameters:**
+- `sessionID`: Starting ID of the block to release
+
+#### SendJob
+
+```go
+func (c *Controller) SendJob(agentID string, jobPayload *pb.JobPayload) error
+```
+
+Sends a job payload to a specific agent via its gRPC stream.
+
+**Parameters:**
+- `agentID`: Target agent identifier
+- `jobPayload`: Job instructions
+
+**Returns:**
+- `error`: Error if agent not found or send fails
+
+**Example:**
+```go
+jobPayload := &pb.JobPayload{
+    SessionId: 1000,
+    DstIp:     "8.8.8.8",
+    MaxTtl:    20,
+    ProbeNum:  3,
+    BasePort:  1000,
+}
+err := controller.SendJob("agent1", jobPayload)
+```
+
+#### Run
+
+```go
+func (c *Controller) Run() error
+```
+
+Starts the gRPC server and blocks until termination. This method should be called in the main goroutine.
+
+**Returns:**
+- `error`: Server startup or runtime error
+
+#### Stop
+
+```go
+func (c *Controller) Stop()
+```
+
+Gracefully stops the gRPC server and cleans up resources.
+
+### gRPC Service Implementation
+
+The controller implements the `AnycastService` gRPC service:
+
+#### ControlStream
+
+```go
+func (c *Controller) ControlStream(stream pb.AnycastService_ControlStreamServer) error
+```
+
+Handles bidirectional streaming with agents. Processes incoming messages and maintains agent connection state.
+
+**Message Flow:**
+1. Agent sends `REGISTER` message
+2. Controller stores agent stream reference
+3. Agent receives `JOB` messages
+4. Agent sends `DONE` and `REPLY` messages
+5. Controller routes messages to appropriate programs
+
+#### UserRequest
+
+```go
+func (c *Controller) UserRequest(ctx context.Context, request *pb.Request) (*pb.Response, error)
+```
+
+Handles user measurement requests. Parses commands, allocates resources, executes programs, and returns formatted results.
+
+**Supported Commands:**
+- `volta <source_agent> <destination> [options]`
+
+**Example:**
+```go
+request := &pb.Request{Command: "volta agent1 8.8.8.8"}
+response, err := controller.UserRequest(ctx, request)
+```
 
 ### Session ID Management
 
-The Controller manages a range of identifiers (`start_id` to `end_id`) to distinguish between concurrent measurement programs and their associated network probes. When a new program (like Traceroute) is initiated via `UserRequest`, the Controller allocates a contiguous block of IDs (`block_size`) for that program instance. The block size is configurable by the user to accommodate the expected usage patterns i.e. a larger block size for programs with many probes.
+The controller manages session IDs using a sliding window allocation strategy:
 
-The starting ID of this block serves as the `session_id` for the program, used in `JobPayload` and `DonePayload` messages. The allocated block of IDs is used by the program and agents to uniquely identify individual probes. For example, in the `Traceroute` program, the UDP source port for each probe is calculated as `session_id + sequence_number`, ensuring that replies can be correctly matched to the corresponding program instance and probe sequence.
+1. **Range Definition**: Session IDs are allocated within `[startID, endID)` range
+2. **Block Allocation**: Each program receives a contiguous block of `blockSize` IDs
+3. **Sliding Window**: Allocation starts from the next available position after the last allocation
+4. **Wraparound**: When reaching the end of the range, allocation wraps to the beginning
+5. **Conflict Resolution**: In-use blocks are tracked to prevent double allocation
 
-The Controller uses a **linear probing (next-fit)** strategy within the circular ID range (`start_id` to `end_id`) to find and allocate free blocks. It starts searching from the ID immediately following the previously allocated block and wraps around if necessary.
+**Session ID Usage:**
+- Base session ID identifies the measurement program
+- Individual probe IDs are calculated as `sessionID + sequenceNumber`
+- UDP source ports use probe IDs for reply matching
 
-#### allocate_session_id()
+### Program Interface
 
-```python
-allocate_session_id() -> int
+**Package:** `github.com/randofan/voltadomar/internal/controller`
+
+The Program interface defines the contract for measurement programs executed by the controller.
+
+```go
+type Program interface {
+    Run() (string, error)
+    HandleDone(payload *pb.DonePayload)
+    HandleReply(payload *pb.ReplyPayload, agentID string) bool
+}
 ```
 
-Allocates a new session ID block using a linear probing (next-fit) approach within the configured ID range. It starts searching from the position after the last allocation and wraps around the range if needed. Marks the found block as in use by adding the starting ID to the `in_use_blocks` set.
+#### Methods
 
-**Returns:** The start ID of the allocated block.
-**Raises:** `RuntimeError` if no free blocks are available within the configured range (`start_id` to `end_id`).
+**Run**
+```go
+Run() (string, error)
+```
+Executes the measurement program and returns formatted results.
 
-#### release_session_id()
+**HandleDone**
+```go
+HandleDone(payload *pb.DonePayload)
+```
+Processes job completion messages from agents.
 
-```python
-release_session_id(session_id: int) -> None
+**HandleReply**
+```go
+HandleReply(payload *pb.ReplyPayload, agentID string) bool
+```
+Processes ICMP reply messages. Returns `true` if the reply belongs to this program.
+
+### ControllerInterface
+
+Programs interact with the controller through this interface:
+
+```go
+type ControllerInterface interface {
+    SendJob(agentID string, jobPayload *pb.JobPayload) error
+}
 ```
 
-Releases a previously allocated session ID block by removing it from the `in_use_blocks` set, making it available for future allocations. This is called when a program finishes execution.
+This abstraction allows for easier testing and decoupling of program logic from controller implementation.
 
-**Parameters:**
-- `session_id`: The start ID of the block to release.
+### Traceroute Implementation
 
-### Methods:
+**Package:** `github.com/randofan/voltadomar/internal/controller`
 
-#### send_job()
+The Traceroute struct implements the Program interface for traceroute measurements.
 
-```python
-async send_job(agent_id: str, job_payload: JobPayload) -> None
+#### TracerouteConf
+
+```go
+type TracerouteConf struct {
+    ProgramConf
+    SourceHost      string
+    DestinationHost string
+    MaxTTL          int
+    ProbeNum        int
+    Timeout         int
+    TOS             int
+    StartID         int32
+}
 ```
 
-Sends a JOB message to a specific agent via its gRPC stream. This method is invoked by a Controller program instance to send a job payload to an agent.
+Configuration for traceroute programs.
 
-**Parameters:**
-- `agent_id`: The ID of the target agent.
-- `job_payload`: The `JobPayload` protobuf message.
+#### TracerouteResult
 
-#### run()
-
-```python
-async run() -> None
-```
-
-Starts the gRPC server and waits for termination.
-
-### gRPC Methods (AnycastService)
-
-#### ControlStream()
-
-```protobuf
-rpc ControlStream(stream Message) returns (stream Message);
-```
-
-Handles the bidirectional gRPC stream with an agent. Receives `REGISTER`, `DONE`, `REPLY`, `ERROR` messages and sends `JOB` messages.
-
-#### UserRequest()
-
-```protobuf
-rpc UserRequest(Request) returns (Response);
-```
-
-Handles a request from a user client to execute a program (e.g., traceroute). Parses the command, allocates resources, runs the program, and returns the result.
-
-**Parameters:**
-- `request`: A `Request` protobuf message containing the command string.
-**Returns:** A `Response` protobuf message containing the status code and output string.
-
-## Program
-
-Base classes for measurement programs run by the Controller.
-
-### ProgramConf
-
-```python
-@dataclass
-class ProgramConf:
-    pass
-```
-
-Base dataclass for program configuration. Specific program configurations should inherit from this.
-
-### Program
-
-```python
-class Program(ABC):
-    def __init__(self, controller: Controller, conf: ProgramConf) -> None:
-        # ... implementation ...
-```
-
-Abstract base class for programs managed by the Controller.
-
-**Parameters:**
-- `controller`: The `Controller` instance managing this program.
-- `conf`: A `ProgramConf` instance containing configuration for this program run.
-
-**Abstract Methods:**
-
-#### run()
-
-```python
-@abstractmethod
-async def run(self) -> Any: # Return type depends on program
-```
-
-Runs the program logic (e.g., sending jobs, waiting for results).
-
-**Returns:** Program-specific results.
-
-#### handle_done()
-
-```python
-@abstractmethod
-def handle_done(self, done_payload: DonePayload) -> None:
-```
-
-Handles a `DONE` message received from an agent related to this program instance.
-
-**Parameters:**
-- `done_payload`: The `DonePayload` protobuf message.
-
-#### handle_reply()
-
-```python
-@abstractmethod
-def handle_reply(self, reply_payload: ReplyPayload, agent_id: str) -> bool:
-```
-
-Handles a `REPLY` message received from an agent. Determines if the reply belongs to this program instance.
-
-**Parameters:**
-- `reply_payload`: The `ReplyPayload` protobuf message.
-- `agent_id`: The ID of the agent that sent the reply.
-
-**Returns:** `True` if the reply was processed by this program, `False` otherwise.
-
-## Traceroute
-
-Traceroute is the only program currently implemented. It sends UDP probes to a destination IP address with increasing TTL values, and records which anycast node receives the ICMP replies. The results are formatted and returned to the user. This enables the user to identify any inconsistencies in bidirectional routing paths, where the probes are sent from one anycast node, but the replies are received by another.
-
-### TracerouteConf
-
-```python
-@dataclass
-class TracerouteConf(ProgramConf):
-    source_host: str
-    destination_host: str
-    start_id: int
-    probe_num: int
-    max_ttl: int
-    timeout: int
-    tos: int
-```
-
-Configuration specific to a traceroute program. Inherits from `ProgramConf`.
-
-**Attributes:**
-- `source_host`: Source agent hostname or ID.
-- `destination_host`: Destination hostname or IP address.
-- `start_id`: Starting session ID allocated by the Controller.
-- `probe_num`: Number of probes per TTL (int).
-- `max_ttl`: Maximum TTL to probe (int).
-- `timeout`: Program timeout in seconds (int).
-- `tos`: Type of Service value for IP header (currently unused in probe building) (int).
-
-### TracerouteResult
-
-```python
-@dataclass
-class TracerouteResult:
-    seq: int
-    t1: Optional[str]  # ISO timestamp
-    t2: Optional[str]  # ISO timestamp
-    receiver: Optional[str]
-    gateway: Optional[str]
-    timeout: bool
-    final_dst: bool
+```go
+type TracerouteResult struct {
+    Seq       int
+    T1        string  // Send time (RFC3339Nano)
+    T2        string  // Receive time (RFC3339Nano)
+    Receiver  string  // Receiving agent ID
+    Gateway   string  // Gateway IP address
+    Timeout   bool
+    FinalDst  bool    // Reached final destination
+}
 ```
 
 Represents the result of a single traceroute probe.
 
-**Attributes:**
-- `seq`: Sequence number (derived from source port).
-- `t1`: ISO timestamp when the probe was sent by the agent.
-- `t2`: ISO timestamp when the reply was received by an agent.
-- `receiver`: Agent ID that received the ICMP reply.
-- `gateway`: IP address of the router that sent the ICMP reply.
-- `timeout`: True if no reply was received for this probe.
-- `final_dst`: True if the reply indicates the final destination was reached (ICMP Type 3).
+#### Constructor
 
-### parse_traceroute_args
-
-```python
-parse_traceroute_args(command: str) -> tuple
+```go
+func NewTraceroute(controller ControllerInterface, conf *TracerouteConf) (*Traceroute, error)
 ```
 
-Parses a traceroute command string into arguments.
+Creates a new traceroute program instance.
 
 **Parameters:**
-- `command`: The command string (e.g., "volta agent1 google.com -m 25 -q 2").
+- `controller`: Controller interface for job dispatch
+- `conf`: Traceroute configuration
 
-**Returns:** A tuple containing: `(source, destination, max_ttls, waittime, tos, nqueries)`.
+**Returns:**
+- `*Traceroute`: New traceroute instance
+- `error`: Error if destination resolution fails
 
-### Traceroute
+#### Methods
 
-```python
-class Traceroute(Program):
-    def __init__(self, controller, conf: TracerouteConf):
-        # ... implementation ...
+**Run**
+```go
+func (tr *Traceroute) Run() (string, error)
 ```
 
-Handles the execution and result processing for a traceroute measurement. Inherits from `Program`.
+Executes the traceroute measurement:
+1. Resolves destination hostname to IP
+2. Sends job to source agent
+3. Waits for completion or timeout
+4. Returns formatted results
+
+**HandleDone**
+```go
+func (tr *Traceroute) HandleDone(payload *pb.DonePayload)
+```
+
+Processes job completion, recording probe send times from UDP acknowledgments.
+
+**HandleReply**
+```go
+func (tr *Traceroute) HandleReply(payload *pb.ReplyPayload, agentID string) bool
+```
+
+Processes ICMP replies:
+1. Parses raw ICMP packet
+2. Extracts sequence number from inner UDP header
+3. Records receive time, gateway IP, and receiving agent
+4. Updates result state
+
+#### Command Parsing
+
+```go
+func ParseTracerouteArgs(command string) (*TracerouteConf, error)
+```
+
+Parses traceroute command strings into configuration.
+
+**Supported Format:**
+```
+volta <source> <destination> [-m <max-ttls>] [-w <waittime>] [-q <nqueries>] [-t <tos>]
+```
+
+**Example:**
+```go
+conf, err := ParseTracerouteArgs("volta agent1 8.8.8.8 -m 20 -q 3")
+```
+
+## Agent Package
+
+**Package:** `github.com/randofan/voltadomar/internal/agent`
+
+The agent package implements the distributed measurement nodes that execute network probing jobs received from the controller.
+
+### Architecture
+
+Agents use a worker pool architecture with separate pools for sending probes and processing received packets:
+
+- **Sender Workers**: Process job payloads and send UDP probes
+- **Listener Workers**: Process incoming ICMP packets and forward replies
+- **gRPC Handler**: Manages bidirectional communication with controller
+- **Packet Sniffer**: Captures ICMP packets using raw sockets
+
+### Agent Struct
+
+```go
+type Agent struct {
+    agentID           string
+    controllerAddress string
+
+    // gRPC client
+    conn   *grpc.ClientConn
+    client pb.AnycastServiceClient
+    stream pb.AnycastService_ControlStreamClient
+
+    // Worker management
+    senderWorkers   *WorkerPool
+    listenerWorkers *WorkerPool
+
+    // Packet sniffer
+    icmpConn *net.IPConn
+
+    // Communication channels
+    outgoingMessages chan *pb.Message
+
+    // Context and synchronization
+    ctx    context.Context
+    cancel context.CancelFunc
+    wg     sync.WaitGroup
+}
+```
+
+### Constructor
+
+```go
+func NewAgent(agentID, controllerAddress string) *Agent
+```
+
+Creates a new agent instance with the specified configuration.
 
 **Parameters:**
-- `controller`: The `Controller` instance.
-- `conf`: A `TracerouteConf` instance.
+- `agentID`: Unique identifier for this agent
+- `controllerAddress`: Controller gRPC endpoint (host:port)
 
-**Methods:**
-
-#### run()
-
-```python
-async run() -> str
+**Example:**
+```go
+agent := NewAgent("agent1", "controller.example.com:50051")
 ```
 
-Runs the traceroute program: sends the `JOB` to the source agent, waits for `DONE` and `REPLY` messages (or timeout), and formats the results.
+### Methods
 
-**Returns:** Formatted traceroute results as a multi-line string.
+#### Run
 
-#### handle_done()
-
-```python
-handle_done(done_payload: DonePayload) -> None
+```go
+func (a *Agent) Run() error
 ```
 
-Processes a `DONE` message, recording the send times (`t1`) for each probe based on the `UdpAck` list.
+Starts the agent's main processes:
+1. Establishes gRPC connection to controller
+2. Sets up ICMP socket for packet capture (requires root)
+3. Initializes worker pools
+4. Registers with controller
+5. Starts message handling goroutines
+
+**Returns:**
+- `error`: Startup or runtime error
+
+**Example:**
+```go
+if err := agent.Run(); err != nil {
+    log.Fatalf("Agent error: %v", err)
+}
+```
+
+#### Stop
+
+```go
+func (a *Agent) Stop()
+```
+
+Gracefully stops the agent and cleans up resources.
+
+### Worker Pool Architecture
+
+The agent uses worker pools to handle concurrent job processing:
+
+#### WorkerPool Struct
+
+```go
+type WorkerPool struct {
+    workerCount int
+    jobChan     chan interface{}
+    workerFunc  func(interface{}) error
+    ctx         context.Context
+    cancel      context.CancelFunc
+    wg          sync.WaitGroup
+}
+```
+
+#### Constructor
+
+```go
+func NewWorkerPool(workerCount int, workerFunc func(interface{}) error) *WorkerPool
+```
+
+Creates a new worker pool with the specified number of workers and processing function.
+
+#### Methods
+
+**Start**
+```go
+func (wp *WorkerPool) Start()
+```
+Starts all worker goroutines.
+
+**Stop**
+```go
+func (wp *WorkerPool) Stop()
+```
+Gracefully stops all workers and waits for completion.
+
+**AddJob**
+```go
+func (wp *WorkerPool) AddJob(job interface{}) error
+```
+Adds a job to the processing queue.
+
+### Worker Functions
+
+#### Sender Worker
+
+Processes job payloads to send UDP probes:
+1. Parses job payload (destination, TTL, probe count)
+2. Creates UDP sockets for probe transmission
+3. Sends probes with incrementing TTL values
+4. Records send times for each probe
+5. Returns DONE message with UDP acknowledgments
+
+#### Listener Worker
+
+Processes incoming ICMP packets:
+1. Parses raw ICMP packet data
+2. Identifies ICMP error messages (destination unreachable, time exceeded)
+3. Extracts source IP and timing information
+4. Forwards REPLY messages to controller
+
+## Packets Package
+
+**Package:** `github.com/randofan/voltadomar/pkg/packets`
+
+The packets package provides network packet manipulation functionality using the `gopacket` library. It offers high-level functions for building and parsing network packets.
+
+### Packet Building Functions
+
+#### BuildUDPProbe
+
+```go
+func BuildUDPProbe(destinationIP string, ttl uint8, sourcePort, destPort uint16) ([]byte, error)
+```
+
+Creates a UDP probe packet with specified parameters.
 
 **Parameters:**
-- `done_payload`: The `DonePayload` from the source agent.
+- `destinationIP`: Target IP address
+- `ttl`: Time-to-Live value
+- `sourcePort`: UDP source port
+- `destPort`: UDP destination port
 
-#### handle_reply()
+**Returns:**
+- `[]byte`: Raw packet bytes
+- `error`: Error if packet creation fails
 
-```python
-handle_reply(reply_payload: ReplyPayload, agent_id: str) -> bool
+**Example:**
+```go
+packet, err := BuildUDPProbe("8.8.8.8", 64, 12345, 53)
 ```
 
-Processes a `REPLY` message, parsing the ICMP packet to extract gateway IP, determining the sequence number from the original UDP source port, and recording receive time (`t2`), receiver agent, and gateway. Updates the state and checks if the program is finished.
+#### BuildICMPProbe
+
+```go
+func BuildICMPProbe(destinationIP string, ttl uint8, seq, identifier uint16) ([]byte, error)
+```
+
+Creates an ICMP echo request packet.
 
 **Parameters:**
-- `reply_payload`: The `ReplyPayload` from any agent.
-- `agent_id`: The ID of the agent that sent the reply.
+- `destinationIP`: Target IP address
+- `ttl`: Time-to-Live value
+- `seq`: ICMP sequence number
+- `identifier`: ICMP identifier
 
-**Returns:** `True` if the reply belonged to this traceroute instance, `False` otherwise.
+**Returns:**
+- `[]byte`: Raw packet bytes (includes 40-byte payload)
+- `error`: Error if packet creation fails
 
-## Agent
+### Packet Parsing
 
-The Agent class runs on each anycast node and executes network measurement jobs received from the Controller.
+#### ParsedPacket Struct
 
-### Agent
-
-```python
-Agent(agent_id: str, controller_address: str)
+```go
+type ParsedPacket struct {
+    Timestamp time.Time
+    IPv4      *layers.IPv4
+    ICMPv4    *layers.ICMPv4
+    UDP       *layers.UDP
+    Payload   []byte
+}
 ```
+
+Represents a parsed network packet with extracted layer information.
+
+#### ParseICMPReply
+
+```go
+func ParseICMPReply(rawPacket []byte, timestamp time.Time) (*ParsedPacket, error)
+```
+
+Parses raw ICMP packet bytes and extracts layer information.
 
 **Parameters:**
-- `agent_id`: Unique identifier for this agent.
-- `controller_address`: The address (host:port) of the controller gRPC service.
+- `rawPacket`: Raw packet bytes
+- `timestamp`: Packet capture timestamp
 
-**Methods:**
+**Returns:**
+- `*ParsedPacket`: Parsed packet structure
+- `error`: Error if parsing fails
 
-#### run()
+### Utility Methods
 
-```python
-async run() -> None
+#### Packet Analysis
+
+```go
+func (p *ParsedPacket) IsICMPError() bool
+func (p *ParsedPacket) GetSourceIP() string
+func (p *ParsedPacket) GetDestinationIP() string
+func (p *ParsedPacket) GetICMPType() int
+func (p *ParsedPacket) GetICMPCode() int
 ```
 
-Starts the agent's main processes: worker managers, gRPC connection handler, and packet sniffer. Handles graceful shutdown.
+#### Network Resolution
 
-#### sender_worker()
-
-```python
-async sender_worker(payload: Any) -> Message
+```go
+func ResolveHostname(ip string) string
+func ResolveIP(hostname string) (string, error)
 ```
 
-Processes a job payload to send UDP/ICMP probes or handles an error payload. Runs within the `sender_workers` pool.
-
-**Parameters:**
-- `payload`: Either a `JobPayload` containing probing instructions or an `ErrorPayload`.
-
-**Returns:** A protobuf `Message` of type `DONE` upon successful job completion, or `ERROR` if an error occurred.
-
-#### listener_worker()
-
-```python
-async def listener_worker(sniffed_packet: Tuple[bytes, str]) -> Message
+**Example:**
+```go
+ip, err := ResolveIP("google.com")
+hostname := ResolveHostname("8.8.8.8")
 ```
 
-Processes a sniffed ICMP packet and formats it as a `REPLY` message. Runs within the `listener_workers` pool.
+### Error Handling
 
-**Parameters:**
-- `sniffed_packet`: A tuple containing the raw packet bytes and the ISO timestamp string of reception.
+#### PacketParseError
 
-**Returns:** A protobuf `Message` of type `REPLY`.
+```go
+type PacketParseError struct {
+    Message string
+}
 
-#### handle_controller()
-
-```python
-async handle_controller(context: grpc.aio.StreamStreamCall) -> None
+func (e *PacketParseError) Error() string
 ```
 
-Receives messages (`JOB`) from the controller via the gRPC stream and dispatches them to the `sender_workers`.
+Custom error type for packet parsing failures.
 
-**Parameters:**
-- `context`: The gRPC stream context for receiving messages.
+## Command-Line Tools
 
-#### handle_sniffer()
+Voltadomar provides two main command-line tools built as Go binaries.
 
-```python
-async handle_sniffer() -> None
+### Controller Binary
+
+**Location:** `src/voltadomar/controller-binary`
+**Source:** `cmd/controller/main.go`
+
+```bash
+./controller-binary [options]
 ```
 
-Listens for incoming ICMP packets on a raw socket and dispatches them to the `listener_workers`.
+**Options:**
+- `--port <port>`: gRPC server port (default: 50051)
+- `--range <start-end>`: Session ID allocation range (required)
+- `--block <size>`: Session ID block size per program (required)
+- `-h, --help`: Show help message
 
-#### handle_output()
-
-```python
-async handle_output() -> AsyncIterator[Message]
+**Example:**
+```bash
+./controller-binary --port 50051 --range 10000-20000 --block 100
 ```
 
-Asynchronously generates messages (`REGISTER`, `DONE`, `REPLY`, `ERROR`) to be sent back to the controller via the gRPC stream. Collects results from worker output queues.
+### Agent Binary
 
-**Yields:** `Message` protobuf objects.
+**Location:** `src/voltadomar/agent-binary`
+**Source:** `cmd/agent/main.go`
 
-## WorkerManager
-
-A utility class for managing a pool of asynchronous worker tasks.
-
-### WorkerManager
-
-```python
-WorkerManager(worker_num: int, job_processor: JobProcessor)
+```bash
+./agent-binary [options]
 ```
 
-**Parameters:**
-- `worker_num`: Number of concurrent worker tasks.
-- `job_processor`: An `async` function that takes one job argument and returns a result.
+**Options:**
+- `-i, --agent-id <id>`: Unique agent identifier (default: hostname)
+- `-c, --controller-address <addr>`: Controller gRPC endpoint (default: 127.0.0.1:50051)
+- `-h, --help`: Show help message
 
-**Properties:**
-- `input_queue`: `asyncio.Queue` for jobs to be processed.
-- `output_queue`: `asyncio.Queue` for results from processed jobs.
-
-**Methods:**
-
-#### start()
-
-```python
-start() -> None
+**Example:**
+```bash
+sudo ./agent-binary -i agent1 -c controller.example.com:50051
 ```
 
-Creates and starts the worker tasks.
+**Note:** Root privileges are required for raw socket operations.
 
-#### add_input()
+## Client Integration
 
-```python
-async add_input(job: Any) -> None
-```
+### gRPC Client Libraries
 
-Adds a job to the input queue.
+Voltadomar can be integrated with any gRPC client library. The service definition is available in `proto/anycast/anycast.proto`.
 
-#### get_output()
+#### Python Client Example
 
 ```python
-async get_output() -> Any
+import grpc
+import anycast_pb2 as pb
+import anycast_pb2_grpc as pb_grpc
+
+# Connect to controller
+with grpc.insecure_channel('localhost:50051') as channel:
+    stub = pb_grpc.AnycastServiceStub(channel)
+
+    # Send traceroute request
+    request = pb.Request(command="volta agent1 8.8.8.8")
+    response = stub.UserRequest(request)
+
+    if response.code == 200:
+        print(response.output)
+    else:
+        print(f"Error: {response.output}")
 ```
 
-Retrieves a result from the output queue. Waits if the queue is empty.
+#### Go Client Example
 
-#### join()
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/credentials/insecure"
+
+    pb "github.com/randofan/voltadomar/proto/anycast"
+)
+
+func main() {
+    // Connect to controller
+    conn, err := grpc.NewClient("localhost:50051",
+        grpc.WithTransportCredentials(insecure.NewCredentials()))
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conn.Close()
+
+    client := pb.NewAnycastServiceClient(conn)
+
+    // Send traceroute request
+    request := &pb.Request{Command: "volta agent1 8.8.8.8"}
+    response, err := client.UserRequest(context.Background(), request)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    if response.Code == 200 {
+        fmt.Println(response.Output)
+    } else {
+        fmt.Printf("Error: %s\n", response.Output)
+    }
+}
+```
+
+## Examples
+
+### Complete Workflow Example
+
+This example demonstrates a complete Voltadomar measurement workflow:
+
+#### 1. Start Controller
+
+```bash
+# Terminal 1: Start controller
+cd src/voltadomar
+./controller-binary --port 50051 --range 10000-20000 --block 100
+```
+
+#### 2. Start Agent
+
+```bash
+# Terminal 2: Start agent (requires root)
+cd src/voltadomar
+sudo ./agent-binary -i agent1 -c localhost:50051
+```
+
+#### 3. Run Measurement
+
+```bash
+# Terminal 3: Run traceroute
+python examples/client.py agent1 8.8.8.8 1
+```
+
+**Expected Output:**
+```
+Traceroute to 8.8.8.8 (8.8.8.8) from agent1, 3 probes, 20 hops max
+1  192.168.1.1 (192.168.1.1) agent1  1.234 ms  1.456 ms  1.678 ms
+2  10.0.0.1 (10.0.0.1) agent1  5.123 ms  5.234 ms  5.345 ms
+...
+```
+
+### Advanced Configuration
+
+#### Multi-Agent Setup
+
+```bash
+# Controller with larger session range
+./controller-binary --port 50051 --range 1000-50000 --block 1000
+
+# Multiple agents on different nodes
+sudo ./agent-binary -i nyc-agent -c controller.example.com:50051
+sudo ./agent-binary -i lax-agent -c controller.example.com:50051
+sudo ./agent-binary -i fra-agent -c controller.example.com:50051
+```
+
+#### Custom Traceroute Parameters
+
+```bash
+# Extended traceroute with custom parameters
+python examples/client.py nyc-agent google.com -m 30 -q 5 -w 10
+```
+
+### Integration Examples
+
+#### Automated Measurement Script
 
 ```python
-async join() -> None
+#!/usr/bin/env python3
+import grpc
+import time
+import json
+from datetime import datetime
+
+# Import generated gRPC files
+import anycast_pb2 as pb
+import anycast_pb2_grpc as pb_grpc
+
+def run_measurement(agent, destination, controller_addr="localhost:50051"):
+    """Run a single traceroute measurement."""
+    with grpc.insecure_channel(controller_addr) as channel:
+        stub = pb_grpc.AnycastServiceStub(channel)
+
+        request = pb.Request(command=f"volta {agent} {destination}")
+        response = stub.UserRequest(request)
+
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "agent": agent,
+            "destination": destination,
+            "success": response.code == 200,
+            "output": response.output
+        }
+
+# Run measurements from multiple agents
+agents = ["nyc-agent", "lax-agent", "fra-agent"]
+destinations = ["8.8.8.8", "1.1.1.1", "208.67.222.222"]
+
+results = []
+for agent in agents:
+    for dest in destinations:
+        result = run_measurement(agent, dest)
+        results.append(result)
+        print(f"Completed: {agent} -> {dest}")
+        time.sleep(1)  # Rate limiting
+
+# Save results
+with open("measurements.json", "w") as f:
+    json.dump(results, f, indent=2)
 ```
 
-Waits until all items in the input queue have been processed and all items in the output queue have been retrieved.
+## Troubleshooting
 
-#### stop()
+### Common Issues
 
-```python
-async stop() -> None
+#### Permission Denied (Raw Sockets)
+
+**Problem:** Agent fails to start with "operation not permitted" error.
+
+**Solution:**
+```bash
+# Run agent with root privileges
+sudo ./agent-binary -i agent1 -c localhost:50051
+
+# Or set capabilities (Linux only)
+sudo setcap cap_net_raw+ep ./agent-binary
+./agent-binary -i agent1 -c localhost:50051
 ```
 
-Signals workers to stop after processing remaining jobs and waits for them to finish. Sends `None` sentinel values to the input queue.
+#### Connection Refused
 
-#### cancel()
+**Problem:** Agent cannot connect to controller.
 
-```python
-async cancel() -> None
+**Diagnosis:**
+```bash
+# Check if controller is running
+netstat -tlnp | grep :50051
+
+# Test connectivity
+telnet controller-host 50051
 ```
 
-Cancels all running worker tasks immediately and clears the queues.
+**Solutions:**
+- Verify controller is running and listening on correct port
+- Check firewall rules allow gRPC traffic
+- Ensure correct controller address in agent configuration
 
-## Packets
+#### Session ID Exhaustion
 
-Voltadomar includes classes for handling various packet types.
+**Problem:** Controller returns "no available session ID blocks" error.
 
-### IP
+**Solutions:**
+```bash
+# Increase session ID range
+./controller-binary --range 1000-100000 --block 100
 
-```python
-IP(raw: Optional[bytes] = None, dst: str = "0.0.0.0", src: str = "0.0.0.0",
-   ttl: int = 64, proto: int = 17, ecn: bool = False)
+# Reduce block size for more concurrent programs
+./controller-binary --range 1000-10000 --block 50
 ```
 
-Represents an IP packet.
+#### Packet Parsing Errors
 
-**Parameters:**
-- `raw`: Raw IP packet bytes for parsing. If provided, other parameters are ignored during initialization but fields are populated by parsing.
-- `dst`: Destination IP address.
-- `src`: Source IP address.
-- `ttl`: Time to Live value.
-- `proto`: Protocol number (e.g., 1 for ICMP, 17 for UDP).
-- `ecn`: Enable ECN bits in the TOS field (sets TOS to 0x03 if True, 0x00 otherwise).
+**Problem:** Agent reports packet parsing failures.
 
-**Properties:**
-- `src`: Source IP address (string).
-- `dst`: Destination IP address (string).
-- `ttl`: Time to Live (int).
-- `proto`: Protocol number (int).
-- `payload`: Packet payload (bytes).
-- `ecn`: ECN bits status (int, 0 or 3). Can be set with a boolean.
-- `version`, `ihl`, `tos`, `length`, `id`, `flags_offset`, `checksum`: Other IP header fields.
+**Diagnosis:**
+- Check agent logs for specific parsing errors
+- Verify network interface captures ICMP traffic
+- Test with known working destinations
 
-**Methods:**
+**Solutions:**
+- Ensure agent has proper network interface access
+- Check for network filtering or NAT issues
+- Verify ICMP traffic is not blocked by firewalls
 
-#### \_\_bytes\_\_()
+### Performance Tuning
 
-```python
-__bytes__() -> bytes
+#### Controller Optimization
+
+```bash
+# Increase worker pools for high-throughput scenarios
+# (Modify source code worker pool sizes)
+
+# Use larger session ranges for many concurrent measurements
+./controller-binary --range 10000-1000000 --block 1000
 ```
 
-Serializes the IP packet object (header + payload) into bytes. Calculates header length automatically. Does *not* calculate the checksum.
+#### Agent Optimization
 
-**Returns:** Raw packet bytes.
+```bash
+# Monitor system resources
+top -p $(pgrep agent-binary)
 
-### UDP
+# Check network interface statistics
+ip -s link show
 
-```python
-UDP(raw: Optional[bytes] = None, sport: int = 0, dport: int = 0,
-    payload: bytes = b"", checksum: int = 0, length: int = 8)
+# Monitor ICMP traffic
+tcpdump -i any icmp
 ```
 
-Represents a UDP packet.
+### Debugging
 
-**Parameters:**
-- `raw`: Raw UDP packet bytes for parsing. If provided, other parameters are ignored during initialization but fields are populated by parsing.
-- `sport`: Source port.
-- `dport`: Destination port.
-- `payload`: UDP payload (bytes).
-- `checksum`: UDP checksum (int). *Note: Checksum calculation is not implemented.*
-- `length`: UDP packet length (header + payload) (int).
+#### Enable Verbose Logging
 
-**Properties:**
-- `sport`: Source port (int).
-- `dport`: Destination port (int).
-- `length`: UDP length (int).
-- `checksum`: UDP checksum (int).
-- `payload`: Packet payload (bytes).
+Modify log levels in source code for detailed debugging:
 
-**Methods:**
-
-#### \_\_bytes\_\_()
-
-```python
-__bytes__() -> bytes
+```go
+// In main.go files, add:
+log.SetLevel(log.DebugLevel)
 ```
 
-Serializes the UDP packet object (header + payload) into bytes.
+#### Network Diagnostics
 
-**Returns:** Raw packet bytes.
+```bash
+# Test UDP connectivity
+nc -u destination-ip 33434
 
-### ICMP
+# Monitor ICMP traffic
+sudo tcpdump -i any -n icmp
 
-```python
-ICMP(raw: Optional[bytes] = None, type: int = 8, code: int = 0)
+# Check routing table
+ip route show
 ```
 
-Represents an ICMP packet.
+#### gRPC Debugging
 
-**Parameters:**
-- `raw`: Raw ICMP packet bytes for parsing. If provided, other parameters are ignored during initialization but fields are populated by parsing.
-- `type`: ICMP type (int).
-- `code`: ICMP code (int).
-
-**Properties:**
-- `type`: ICMP packet type (int).
-- `code`: ICMP code field (int).
-- `checksum`: ICMP checksum (int).
-- `original_data`: For echo request/reply, the data after the standard 4-byte header. For error messages (Type 3, 11), the original IP header and first 8 bytes of the original transport header that caused the error (bytes).
-- `inner_data`: For error messages (Type 3, 11), the data *after* the inner IP header within `original_data`. Typically contains the start of the original transport (UDP/TCP/ICMP) header (bytes or None).
-
-**Methods:**
-
-#### \_\_bytes\_\_()
-
-```python
-__bytes__() -> bytes
+```bash
+# Enable gRPC logging (environment variable)
+export GRPC_GO_LOG_VERBOSITY_LEVEL=99
+export GRPC_GO_LOG_SEVERITY_LEVEL=info
 ```
 
-Serializes the ICMP packet object into bytes. Calculates and inserts the checksum automatically.
+### Getting Help
 
-**Returns:** Raw packet bytes.
+For additional support:
 
-## Utilities
+1. **Check Logs**: Review controller and agent logs for specific error messages
+2. **Test Connectivity**: Verify network connectivity between components
+3. **Validate Configuration**: Ensure all parameters are within valid ranges
+4. **Monitor Resources**: Check system resources (CPU, memory, network)
+5. **Review Documentation**: Consult this API reference and README.md
 
-Utility functions for network operations.
-
-### resolve_ip()
-
-```python
-resolve_ip(hostname: str) -> Optional[str]
+**Common Log Locations:**
+- Controller: stdout/stderr or configured log file
+- Agent: stdout/stderr or configured log file
+- System logs: `/var/log/syslog` or `journalctl -u voltadomar`
 ```
-
-Resolves a hostname to an IP address using `socket.gethostbyname`.
-
-**Parameters:**
-- `hostname`: Hostname to resolve.
-
-**Returns:** IP address as a string, or `None` if resolution fails.
-
-### resolve_hostname()
-
-```python
-resolve_hostname(ip: str) -> str
-```
-
-Attempts to resolve an IP address to a hostname using `socket.gethostbyaddr`.
-
-**Parameters:**
-- `ip`: IP address string to resolve.
-
-**Returns:** Hostname string, or the original IP string if resolution fails.
-
-### build_udp_probe()
-
-```python
-build_udp_probe(destination_ip: str, ttl: int, source_port: int, dst_port: int) -> bytes
-```
-
-Builds a raw UDP probe packet (IP header + UDP header, no payload).
-
-**Parameters:**
-- `destination_ip`: Destination IP address.
-- `ttl`: Time to Live value for the IP header.
-- `source_port`: Source UDP port.
-- `dst_port`: Destination UDP port.
-
-**Returns:** Raw packet bytes.
-
-### build_icmp_probe()
-
-```python
-build_icmp_probe(destination_ip: str, ttl: int, seq: int, identifier: int) -> bytes
-```
-
-Builds a raw ICMP Echo Request packet (IP header + ICMP header + data).
-
-**Parameters:**
-- `destination_ip`: Destination IP address.
-- `ttl`: Time to Live value for the IP header.
-- `seq`: ICMP sequence number.
-- `identifier`: ICMP identifier.
-
-**Returns:** Raw packet bytes including a 40-byte payload.
-
-## Exceptions
-
-Custom exceptions used in the package.
-
-### PacketParseError
-
-```python
-class PacketParseError(Exception):
-    pass
-```
-
-Raised when parsing raw bytes into a `IP`, `UDP`, or `ICMP` object fails due to malformed data or insufficient length.

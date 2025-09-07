@@ -3,9 +3,9 @@
 import grpc
 import warnings
 
-import voltadomar.anycast.anycast_pb2 as anycast__pb2
+import anycast_pb2 as anycast__pb2
 
-GRPC_GENERATED_VERSION = '1.67.0'
+GRPC_GENERATED_VERSION = '1.74.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 

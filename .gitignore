@@ -9,6 +9,10 @@
 # Python venv
 venv/
 
+# Binaries
+agent-binary
+controller-binary
+
 # Node artifact files
 node_modules/
 dist/
