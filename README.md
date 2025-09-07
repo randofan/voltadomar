@@ -120,6 +120,11 @@ voltadomar/
 │   ├── go.sum                   # Dependency checksums
 │   ├── controller-binary        # Compiled controller
 │   └── agent-binary             # Compiled agent
+├── cli/                         # GoLang CLI client
+│   ├── cmd/voltadomar-cli/      # CLI application
+│   ├── proto/anycast/           # gRPC client definitions
+│   ├── go.mod                   # CLI module definition
+│   └── README.md               # CLI documentation
 ├── examples/                    # Usage examples
 │   ├── controller.sh            # Controller startup script
 │   ├── agent.sh                 # Agent startup script
@@ -169,6 +174,10 @@ sudo ./agent-binary -i agent1 -c controller.example.com:50051
 Connect to the controller with a client:
 
 ```bash
+# Using the new GoLang CLI (recommended)
+cd cli && go build -o voltadomar-cli ./cmd/voltadomar-cli
+./voltadomar-cli agent1 8.8.8.8 3
+
 # Using the Python client example
 python examples/client.py agent1 8.8.8.8 3
 
@@ -223,7 +232,10 @@ go generate ./...
 # Start agent (requires root for raw sockets)
 sudo ./agent-binary -i agent1 -c localhost:50051
 
-# Run traceroute measurement
+# Run traceroute measurement (GoLang CLI - recommended)
+cd cli && ./voltadomar-cli agent1 8.8.8.8 1
+
+# Or using Python client
 python examples/client.py agent1 8.8.8.8 1
 
 # Check help for any binary
