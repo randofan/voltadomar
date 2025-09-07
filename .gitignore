@@ -12,6 +12,7 @@ venv/
 # Binaries
 agent-binary
 controller-binary
+client-binary
 
 # Node artifact files
 node_modules/

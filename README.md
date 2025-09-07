@@ -107,7 +107,8 @@ voltadomar/
 ├── src/voltadomar/              # Go implementation
 │   ├── cmd/                     # Application entry points
 │   │   ├── controller/main.go   # Controller binary
-│   │   └── agent/main.go        # Agent binary
+│   │   ├── agent/main.go        # Agent binary
+│   │   └── client/main.go       # CLI client binary
 │   ├── internal/                # Private application code
 │   │   ├── controller/          # Controller implementation
 │   │   ├── agent/               # Agent implementation
@@ -119,12 +120,8 @@ voltadomar/
 │   ├── go.mod                   # Go module definition
 │   ├── go.sum                   # Dependency checksums
 │   ├── controller-binary        # Compiled controller
-│   └── agent-binary             # Compiled agent
-├── cli/                         # GoLang CLI client
-│   ├── cmd/voltadomar-cli/      # CLI application
-│   ├── proto/anycast/           # gRPC client definitions
-│   ├── go.mod                   # CLI module definition
-│   └── README.md               # CLI documentation
+│   ├── agent-binary             # Compiled agent
+│   └── client-binary            # Compiled CLI client
 ├── examples/                    # Usage examples
 │   ├── controller.sh            # Controller startup script
 │   ├── agent.sh                 # Agent startup script
@@ -175,8 +172,9 @@ Connect to the controller with a client:
 
 ```bash
 # Using the new GoLang CLI (recommended)
-cd cli && go build -o voltadomar-cli ./cmd/voltadomar-cli
-./voltadomar-cli agent1 8.8.8.8 3
+cd src/voltadomar
+go build -o client-binary ./cmd/client
+./client-binary agent1 8.8.8.8 3
 
 # Using the Python client example
 python examples/client.py agent1 8.8.8.8 3
@@ -212,6 +210,7 @@ Traceroute to 8.8.8.8 (8.8.8.8) from agent1, 3 probes, 20 hops max
 cd src/voltadomar
 go build -o controller-binary ./cmd/controller
 go build -o agent-binary ./cmd/agent
+go build -o client-binary ./cmd/client
 
 # Run tests
 go test ./...
@@ -233,7 +232,7 @@ go generate ./...
 sudo ./agent-binary -i agent1 -c localhost:50051
 
 # Run traceroute measurement (GoLang CLI - recommended)
-cd cli && ./voltadomar-cli agent1 8.8.8.8 1
+cd src/voltadomar && ./client-binary agent1 8.8.8.8 1
 
 # Or using Python client
 python examples/client.py agent1 8.8.8.8 1
