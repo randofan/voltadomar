@@ -1,0 +1,17 @@
+# /etc/systemd/system/voltadomar-controller.service
+[Unit]
+Description=Voltadomar Controller Service
+After=network.target
+
+[Service]
+Type=simple
+User=voltadomar
+Group=voltadomar
+WorkingDirectory=/var/lib/voltadomar
+ExecStart=/usr/bin/env sh -c '/usr/local/bin/controller-binary --config /etc/voltadomar/controller.yaml >> /var/log/voltadomar/controller.log 2>&1'
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target
+

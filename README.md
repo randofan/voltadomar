@@ -222,6 +222,30 @@ go test -cover ./...
 go generate ./...
 ```
 
+
+### Run as systemd services (Linux)
+
+A minimal, Linux-only setup is provided to run Controller and Agent as services with log rotation.
+
+- Example configs: examples/config/{controller.yaml,agent.yaml}
+- systemd units: examples/systemd/{voltadomar-controller.service,voltadomar-agent.service}
+- logrotate rule: examples/logrotate/voltadomar
+- installer: examples/install/linux-install.sh
+
+Quick install (must run as root):
+
+```bash
+sudo examples/install/linux-install.sh
+# Then start services
+sudo systemctl start voltadomar-controller voltadomar-agent
+# Check status
+systemctl status voltadomar-controller voltadomar-agent
+# Tail logs
+sudo tail -f /var/log/voltadomar/{controller.log,agent.log}
+```
+
+Configuration precedence: CLI flags > YAML file > defaults. Edit /etc/voltadomar/*.yaml and restart services.
+
 ### Common Commands
 
 ```bash

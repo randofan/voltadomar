@@ -1,0 +1,19 @@
+# /etc/systemd/system/voltadomar-agent.service
+[Unit]
+Description=Voltadomar Agent Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Note: agent runs as root for raw sockets; consider CAP_NET_RAW later
+User=root
+Group=root
+WorkingDirectory=/var/lib/voltadomar
+ExecStart=/usr/bin/env sh -c '/usr/local/bin/agent-binary --config /etc/voltadomar/agent.yaml >> /var/log/voltadomar/agent.log 2>&1'
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target
+

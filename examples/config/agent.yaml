@@ -1,0 +1,7 @@
+# Example agent configuration for Voltadomar
+# Install to: /etc/voltadomar/agent.yaml
+
+agent_id: ""            # defaults to hostname if empty
+controller_address: "127.0.0.1:50051"
+log_level: info
+

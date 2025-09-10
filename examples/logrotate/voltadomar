@@ -1,0 +1,11 @@
+/var/log/voltadomar/*.log {
+  size 10M
+  rotate 7
+  daily
+  compress
+  delaycompress
+  missingok
+  notifempty
+  copytruncate
+}
+

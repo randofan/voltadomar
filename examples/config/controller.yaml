@@ -1,0 +1,8 @@
+# Example controller configuration for Voltadomar
+# Install to: /etc/voltadomar/controller.yaml
+
+port: 50051
+session_range: "10000-20000"
+block_size: 100
+log_level: info
+
